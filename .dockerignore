@@ -1,0 +1,12 @@
+# Keep build contexts small and secret-free.
+**/node_modules
+**/dist
+**/.venv
+**/venv
+**/__pycache__
+**/*.pyc
+.azure
+.git
+.env
+config/.env
+**/.env.local
