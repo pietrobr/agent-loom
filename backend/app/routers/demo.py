@@ -33,6 +33,8 @@ def list_demo_customers() -> List[Dict[str, Any]]:
         org_id = tenant.get("org_id")
         if not org_id:
             continue
+        if not tenant.get("enabled", True):
+            continue  # customer disabled by the partner admin
         instances = cosmos.list_instances(org_id)
         usable = [
             {"id": i["id"], "display_name": i.get("display_name", i["id"])}

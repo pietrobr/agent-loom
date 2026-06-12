@@ -11,8 +11,16 @@ import {
   Badge,
   Spinner,
   MessageBar,
+  Dialog,
+  DialogTrigger,
+  DialogSurface,
+  DialogTitle,
+  DialogBody,
+  DialogActions,
+  DialogContent,
   makeStyles,
 } from "@fluentui/react-components";
+import { Delete24Regular } from "@fluentui/react-icons";
 import { api, Tenant } from "../api";
 
 const useStyles = makeStyles({
@@ -34,15 +42,31 @@ const EMPTY = {
 export function CustomersPage() {
   const styles = useStyles();
   const [items, setItems] = useState<Tenant[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState<any>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [toDelete, setToDelete] = useState<Tenant | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
     setErr("");
     try {
-      setItems(await api.listCustomers());
+      const tenants = await api.listCustomers();
+      setItems(tenants);
+      // Fetch instance counts so we know which customers are safe to delete.
+      const pairs = await Promise.all(
+        tenants.map(async (t) => {
+          try {
+            const insts = await api.listInstances(t.org_id);
+            return [t.org_id, insts.length] as const;
+          } catch {
+            return [t.org_id, 0] as const;
+          }
+        })
+      );
+      setCounts(Object.fromEntries(pairs));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -64,6 +88,32 @@ export function CustomersPage() {
     }
   }
 
+  async function confirmDelete() {
+    if (!toDelete) return;
+    setDeleting(true);
+    setErr("");
+    try {
+      await api.deleteCustomer(toDelete.org_id);
+      setToDelete(null);
+      if (draft.org_id === toDelete.org_id) setDraft(EMPTY);
+      await load();
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  async function toggleEnabled(t: Tenant) {
+    setErr("");
+    try {
+      await api.saveCustomer({ ...t, enabled: !(t.enabled ?? true) });
+      await load();
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
+
   return (
     <div className={styles.grid}>
       <div className={styles.list}>
@@ -79,6 +129,11 @@ export function CustomersPage() {
                 <div className={styles.row}>
                   <Text weight="semibold">{t.name}</Text>
                   <Badge appearance="tint">{t.tier}</Badge>
+                  {t.enabled === false && (
+                    <Badge appearance="filled" color="warning">
+                      disabled
+                    </Badge>
+                  )}
                 </div>
               }
               description={
@@ -92,6 +147,37 @@ export function CustomersPage() {
               <Button size="small" onClick={() => setDraft(t)}>
                 Edit
               </Button>
+              <Button
+                size="small"
+                appearance="secondary"
+                onClick={() => toggleEnabled(t)}
+                title={
+                  t.enabled === false
+                    ? "Re-enable: customer becomes visible in the customer app"
+                    : "Disable: customer is hidden from the customer app"
+                }
+              >
+                {t.enabled === false ? "Enable" : "Disable"}
+              </Button>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Delete24Regular />}
+                disabled={(counts[t.org_id] ?? 0) > 0}
+                title={
+                  (counts[t.org_id] ?? 0) > 0
+                    ? "Remove all instances before deleting this customer"
+                    : "Delete customer"
+                }
+                onClick={() => setToDelete(t)}
+              >
+                Delete
+              </Button>
+              {(counts[t.org_id] ?? 0) > 0 && (
+                <Text size={100} style={{ color: "#8a6d00" }}>
+                  {counts[t.org_id]} instance(s) attached
+                </Text>
+              )}
             </div>
           </Card>
         ))}
@@ -154,6 +240,31 @@ export function CustomersPage() {
           </div>
         </div>
       </Card>
+
+      <Dialog open={!!toDelete} onOpenChange={(_, d) => !d.open && setToDelete(null)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Delete customer?</DialogTitle>
+            <DialogContent>
+              <Text>
+                You are about to permanently delete{" "}
+                <strong>{toDelete?.name}</strong> (<code>{toDelete?.org_id}</code>) and its
+                empty Search index. This action cannot be undone.
+              </Text>
+            </DialogContent>
+            <DialogActions>
+              <DialogTrigger disableButtonEnhancement>
+                <Button appearance="secondary" disabled={deleting}>
+                  Cancel
+                </Button>
+              </DialogTrigger>
+              <Button appearance="primary" onClick={confirmDelete} disabled={deleting}>
+                {deleting ? <Spinner size="tiny" /> : "Delete customer"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }

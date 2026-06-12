@@ -66,6 +66,24 @@ def customer_metering(org_id: str, _: Principal = Depends(require_admin)) -> Dic
     return cosmos.metering_summary(org_id)
 
 
+@router.delete("/customers/{org_id}")
+def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[str, Any]:
+    """Delete a customer. Refused if any instance is still attached (the admin
+    must remove every instance first, which also tears down its agent + KB)."""
+    if not cosmos.get_tenant(org_id):
+        raise HTTPException(404, "unknown customer")
+    instances = cosmos.list_instances(org_id)
+    if instances:
+        raise HTTPException(
+            409,
+            f"customer has {len(instances)} instance(s); remove them before deleting the customer",
+        )
+    # No instances → safe to drop the (now-empty) Search index and the tenant.
+    search.delete_index(org_id)
+    cosmos.delete("tenants", org_id, org_id)
+    return {"status": "deleted", "org_id": org_id}
+
+
 # --------------------------------------------------------------------------- #
 # Instances                                                                    #
 # --------------------------------------------------------------------------- #

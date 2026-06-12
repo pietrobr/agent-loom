@@ -11,6 +11,10 @@ dist/
 .vite/
 *.log
 
+# Compiled TS artifacts emitted next to sources (tsc -b)
+*/src/**/*.js
+*/src/**/*.d.ts
+
 # Env / secrets
 .env
 .env.local

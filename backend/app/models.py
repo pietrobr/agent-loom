@@ -55,6 +55,7 @@ class Tenant(BaseModel):
     org_id: str
     name: str
     tier: Literal["free", "starter", "pro"] = "starter"
+    enabled: bool = True  # disabled customers are hidden from the customer app
     monthly_token_quota: int = 1_000_000
     branding: Branding = Field(default_factory=Branding)
     search_index: str = ""

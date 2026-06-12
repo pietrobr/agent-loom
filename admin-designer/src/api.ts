@@ -99,6 +99,7 @@ export interface Tenant {
   org_id: string;
   name: string;
   tier: "free" | "starter" | "pro";
+  enabled?: boolean;
   monthly_token_quota: number;
   branding: Branding;
   search_index: string;
@@ -129,6 +130,8 @@ export const api = {
   listCustomers: () => req<Tenant[]>("/v1/admin/customers"),
   saveCustomer: (c: Partial<Tenant>) =>
     req<Tenant>("/v1/admin/customers", { method: "POST", body: JSON.stringify(c) }),
+  deleteCustomer: (orgId: string) =>
+    req<void>(`/v1/admin/customers/${orgId}`, { method: "DELETE" }),
 
   listInstances: (orgId: string) =>
     req<Instance[]>(`/v1/admin/customers/${orgId}/instances`),
