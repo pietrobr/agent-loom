@@ -12,8 +12,9 @@ const useStyles = makeStyles({
         justifyContent: "center",
         gap: "8px",
         padding: "6px 12px",
-        backgroundColor: "#7A4D00",
-        color: "#FFE8B3",
+        backgroundColor: "#053B5E",
+        color: "#EAFBFF",
+        borderBottom: "2px solid #00A8A8",
         fontSize: "12px",
         fontWeight: 600,
     },
@@ -148,7 +149,7 @@ export function App() {
         });
         setBusy(false);
     }
-    const color = branding?.primary_color || "#5B5FC7";
+    const color = branding?.primary_color || "#138DDE";
     const suggestions = customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
     return (_jsxs("div", { className: styles.app, children: [_jsx("div", { className: styles.demoBanner, children: "\u26A0\uFE0F DEMO MODE \u2014 sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID." }), _jsxs("header", { className: styles.header, style: { background: brandGradient(color) }, children: [_jsx("img", { src: branding?.logo_url || "/logo.svg", className: styles.logo, alt: "logo" }), _jsxs("div", { children: [_jsx(Text, { weight: "bold", size: 500, children: branding?.product_name || "AgentLoom" }), branding?.tagline && (_jsx("div", { children: _jsx(Text, { size: 200, children: branding.tagline }) }))] }), _jsx("div", { className: styles.spacer }), _jsxs("div", { className: styles.row, children: [_jsx(Text, { size: 200, children: "Demo customer:" }), _jsx(Dropdown, { size: "small", value: customer?.name || "", selectedOptions: customer ? [customer.org_id] : [], onOptionSelect: (_, d) => {
                                     const c = customers.find((x) => x.org_id === d.optionValue);

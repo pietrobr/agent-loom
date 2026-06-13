@@ -1,3 +1,5 @@
+![AgentLoom](docs/assets/brand-options/option-2-agent-fabric.svg)
+
 # AgentLoom
 
 > **AgentLoom** is an open-source, multi-tenant SaaS accelerator that lets a
@@ -166,7 +168,7 @@ Edit [config/branding.json](config/branding.json) **or** set env vars (env wins)
 | ----------------- | -------------------- | ------------------------------------ |
 | Product name      | `PRODUCT_NAME`       | `AgentLoom`                          |
 | Tagline           | `PRODUCT_TAGLINE`    | `Weave agents for every customer`    |
-| Primary color     | `PRIMARY_COLOR`      | `#5B5FC7`                            |
+| Primary color     | `PRIMARY_COLOR`      | `#138DDE`                            |
 | Logo URL          | `LOGO_URL`           | `/logo.svg`                          |
 
 The backend exposes a resolved brand per customer at `GET /v1/branding`

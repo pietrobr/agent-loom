@@ -19,16 +19,31 @@ import {
   DialogActions,
   DialogContent,
   makeStyles,
+  tokens,
+  OverlayDrawer,
+  DrawerHeader,
+  DrawerHeaderTitle,
+  DrawerBody,
 } from "@fluentui/react-components";
-import { Delete24Regular } from "@fluentui/react-icons";
+import { Delete24Regular, Add20Filled, Dismiss24Regular, Edit20Regular } from "@fluentui/react-icons";
 import { api, Tenant } from "../api";
 
 const useStyles = makeStyles({
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
-  list: { display: "flex", flexDirection: "column", gap: "12px" },
-  form: { display: "flex", flexDirection: "column", gap: "10px" },
+  list: { display: "flex", flexDirection: "column", gap: "12px", maxWidth: "760px" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
+  form: { display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "16px" },
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
+  empty: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "8px",
+    padding: "40px 16px",
+    border: `1px dashed ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusXLarge,
+    color: tokens.colorNeutralForeground3,
+  },
   colorRow: { display: "flex", gap: "10px", alignItems: "center" },
   swatch: {
     width: "40px",
@@ -46,7 +61,7 @@ const EMPTY = {
   name: "",
   tier: "starter" as const,
   monthly_token_quota: 1_000_000,
-  branding: { product_name: "", primary_color: "#5B5FC7", logo_url: "/logo.svg", tagline: "" },
+  branding: { product_name: "", primary_color: "#138DDE", logo_url: "/logo.svg", tagline: "" },
 };
 
 // Default monthly token allowance per tier. Selecting a tier prefills this
@@ -66,6 +81,16 @@ export function CustomersPage() {
   const [err, setErr] = useState("");
   const [toDelete, setToDelete] = useState<Tenant | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  function openNew() {
+    setDraft(EMPTY);
+    setOpen(true);
+  }
+  function openEdit(t: Tenant) {
+    setDraft(t);
+    setOpen(true);
+  }
 
   async function load() {
     setLoading(true);
@@ -100,6 +125,7 @@ export function CustomersPage() {
     try {
       await api.saveCustomer(draft);
       setDraft(EMPTY);
+      setOpen(false);
       await load();
     } catch (e: any) {
       setErr(e.message);
@@ -133,13 +159,27 @@ export function CustomersPage() {
   }
 
   return (
-    <div className={styles.grid}>
+    <>
       <div className={styles.list}>
-        <Text weight="semibold" size={500}>
-          Customers
-        </Text>
+        <div className={styles.header}>
+          <Text weight="semibold" size={500}>
+            Customers
+          </Text>
+          <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
+            Onboard customer
+          </Button>
+        </div>
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
+        {!loading && items.length === 0 && (
+          <div className={styles.empty}>
+            <Text size={400} weight="semibold">No customers yet</Text>
+            <Text size={200}>Onboard your first SMB customer to give them a branded agent app.</Text>
+            <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
+              Onboard customer
+            </Button>
+          </div>
+        )}
         {items.map((t) => (
           <Card key={t.org_id} className={styles.card}>
             <CardHeader
@@ -162,7 +202,7 @@ export function CustomersPage() {
             />
             <Text size={200}>quota: {t.monthly_token_quota.toLocaleString()} tokens / month</Text>
             <div className={styles.row}>
-              <Button size="small" onClick={() => setDraft(t)}>
+              <Button size="small" icon={<Edit20Regular />} onClick={() => openEdit(t)}>
                 Edit
               </Button>
               <Button
@@ -201,12 +241,24 @@ export function CustomersPage() {
         ))}
       </div>
 
-      <Card className={styles.card}>
-        <Text weight="semibold" size={500}>
-          {items.find((i) => i.org_id === draft.org_id) ? "Edit customer" : "Onboard customer"}
-        </Text>
-        <Text size={200}>Saving auto-creates the per-customer Search index kb-&#123;org_id&#125;.</Text>
-        <div className={styles.form}>
+      <OverlayDrawer position="end" open={open} onOpenChange={(_, d) => setOpen(d.open)} size="medium">
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button
+                appearance="subtle"
+                aria-label="Close"
+                icon={<Dismiss24Regular />}
+                onClick={() => setOpen(false)}
+              />
+            }
+          >
+            {items.find((i) => i.org_id === draft.org_id) ? "Edit customer" : "Onboard customer"}
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
+          <Text size={200}>Saving auto-creates the per-customer Search index kb-&#123;org_id&#125;.</Text>
+          <div className={styles.form}>
           <Label>Customer ID (used at sign-in &amp; for data isolation — cannot be changed later)</Label>
           <Input value={draft.org_id} onChange={(_, d) => setDraft({ ...draft, org_id: d.value })} />
           <Label>Display name</Label>
@@ -247,7 +299,7 @@ export function CustomersPage() {
               type="color"
               className={styles.swatch}
               aria-label="Pick primary color"
-              value={/^#[0-9a-fA-F]{6}$/.test(draft.branding.primary_color) ? draft.branding.primary_color : "#5B5FC7"}
+              value={/^#[0-9a-fA-F]{6}$/.test(draft.branding.primary_color) ? draft.branding.primary_color : "#138DDE"}
               onChange={(e) =>
                 setDraft({ ...draft, branding: { ...draft.branding, primary_color: e.target.value } })
               }
@@ -271,12 +323,13 @@ export function CustomersPage() {
             <Button appearance="primary" onClick={save} disabled={!draft.org_id || !draft.name}>
               Save
             </Button>
-            <Button appearance="secondary" onClick={() => setDraft(EMPTY)}>
-              Reset
+            <Button appearance="secondary" onClick={() => setOpen(false)}>
+              Cancel
             </Button>
           </div>
         </div>
-      </Card>
+        </DrawerBody>
+      </OverlayDrawer>
 
       <Dialog open={!!toDelete} onOpenChange={(_, d) => !d.open && setToDelete(null)}>
         <DialogSurface>
@@ -302,6 +355,6 @@ export function CustomersPage() {
           </DialogBody>
         </DialogSurface>
       </Dialog>
-    </div>
+    </>
   );
 }

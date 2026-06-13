@@ -12,16 +12,32 @@ import {
   Badge,
   Spinner,
   makeStyles,
+  tokens,
   MessageBar,
+  OverlayDrawer,
+  DrawerHeader,
+  DrawerHeaderTitle,
+  DrawerBody,
 } from "@fluentui/react-components";
+import { Add20Filled, Dismiss24Regular, Edit20Regular, Delete20Regular } from "@fluentui/react-icons";
 import { api, Template } from "../api";
 
 const useStyles = makeStyles({
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
-  list: { display: "flex", flexDirection: "column", gap: "12px" },
-  form: { display: "flex", flexDirection: "column", gap: "10px" },
+  list: { display: "flex", flexDirection: "column", gap: "12px", maxWidth: "760px" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
+  form: { display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "16px" },
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
+  empty: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "8px",
+    padding: "40px 16px",
+    border: `1px dashed ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusXLarge,
+    color: tokens.colorNeutralForeground3,
+  },
 });
 
 const EMPTY: Partial<Template> = {
@@ -42,6 +58,16 @@ export function TemplatesPage() {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
+  const [open, setOpen] = useState(false);
+
+  function openNew() {
+    setDraft(EMPTY);
+    setOpen(true);
+  }
+  function openEdit(t: Template) {
+    setDraft(t);
+    setOpen(true);
+  }
 
   async function load() {
     setLoading(true);
@@ -68,6 +94,7 @@ export function TemplatesPage() {
     try {
       await api.saveTemplate(draft);
       setDraft(EMPTY);
+      setOpen(false);
       await load();
     } catch (e: any) {
       setErr(e.message);
@@ -75,13 +102,27 @@ export function TemplatesPage() {
   }
 
   return (
-    <div className={styles.grid}>
+    <>
       <div className={styles.list}>
-        <Text weight="semibold" size={500}>
-          Catalog templates
-        </Text>
+        <div className={styles.header}>
+          <Text weight="semibold" size={500}>
+            Catalog templates
+          </Text>
+          <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
+            New template
+          </Button>
+        </div>
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
+        {!loading && items.length === 0 && (
+          <div className={styles.empty}>
+            <Text size={400} weight="semibold">No templates yet</Text>
+            <Text size={200}>Create a reusable agent blueprint to assign to customers.</Text>
+            <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
+              New template
+            </Button>
+          </div>
+        )}
         {items.map((t) => (
           <Card key={t.id} className={styles.card}>
             <CardHeader
@@ -101,12 +142,13 @@ export function TemplatesPage() {
               agent is created per customer when an instance is configured
             </Text>
             <div className={styles.row}>
-              <Button size="small" onClick={() => setDraft(t)}>
+              <Button size="small" icon={<Edit20Regular />} onClick={() => openEdit(t)}>
                 Edit
               </Button>
               <Button
                 size="small"
                 appearance="subtle"
+                icon={<Delete20Regular />}
                 onClick={async () => {
                   await api.deleteTemplate(t.id);
                   load();
@@ -119,11 +161,23 @@ export function TemplatesPage() {
         ))}
       </div>
 
-      <Card className={styles.card}>
-        <Text weight="semibold" size={500}>
-          {draft.id ? "Edit template" : "New template"}
-        </Text>
-        <div className={styles.form}>
+      <OverlayDrawer position="end" open={open} onOpenChange={(_, d) => setOpen(d.open)} size="medium">
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button
+                appearance="subtle"
+                aria-label="Close"
+                icon={<Dismiss24Regular />}
+                onClick={() => setOpen(false)}
+              />
+            }
+          >
+            {draft.id ? "Edit template" : "New template"}
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
+          <div className={styles.form}>
           <Label>Name</Label>
           <Input value={draft.name || ""} onChange={(_, d) => setDraft({ ...draft, name: d.value })} />
           <Label>Description</Label>
@@ -193,12 +247,13 @@ export function TemplatesPage() {
             <Button appearance="primary" onClick={save} disabled={!draft.name}>
               Save
             </Button>
-            <Button appearance="secondary" onClick={() => setDraft(EMPTY)}>
-              Reset
+            <Button appearance="secondary" onClick={() => setOpen(false)}>
+              Cancel
             </Button>
           </div>
-        </div>
-      </Card>
-    </div>
+          </div>
+        </DrawerBody>
+      </OverlayDrawer>
+    </>
   );
 }

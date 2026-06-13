@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Branding
     product_name: str = "AgentLoom"
     product_tagline: str = "Weave agents for every customer"
-    primary_color: str = "#5B5FC7"
+    primary_color: str = "#138DDE"
     logo_url: str = "/logo.svg"
     support_email: str = "support@example.com"
     partner_name: str = "Acme Partner"

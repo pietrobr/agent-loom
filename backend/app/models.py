@@ -48,7 +48,7 @@ class Template(BaseModel):
 # --------------------------------------------------------------------------- #
 class Branding(BaseModel):
     product_name: str = "AgentLoom"
-    primary_color: str = "#5B5FC7"
+    primary_color: str = "#138DDE"
     logo_url: str = "/logo.svg"
     tagline: str = ""
 

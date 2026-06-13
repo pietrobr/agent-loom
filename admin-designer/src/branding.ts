@@ -10,7 +10,7 @@ export interface AppBranding {
 const DEFAULTS: AppBranding = {
   PRODUCT_NAME: "AgentLoom",
   PRODUCT_TAGLINE: "Weave agents for every customer",
-  PRIMARY_COLOR: "#5B5FC7",
+  PRIMARY_COLOR: "#138DDE",
   LOGO_URL: "/logo.svg",
 };
 

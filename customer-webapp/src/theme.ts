@@ -1,12 +1,15 @@
 /** Small color helpers to derive an attractive gradient from a brand color. */
 
+export const AGENTLOOM_PRIMARY = "#138DDE";
+const AGENTLOOM_BRAND_COLORS = ["#00A8A8", AGENTLOOM_PRIMARY, "#4F6BFF"];
+
 function clamp(v: number): number {
   return Math.max(0, Math.min(255, Math.round(v)));
 }
 
 /** Lighten (amt > 0) or darken (amt < 0) a hex color. amt in [-1, 1]. */
 export function shade(hex: string, amt: number): string {
-  const c = (hex || "#5B5FC7").replace("#", "");
+  const c = (hex || AGENTLOOM_PRIMARY).replace("#", "");
   const n = c.length === 3 ? c.split("").map((x) => x + x).join("") : c;
   const r = parseInt(n.slice(0, 2), 16);
   const g = parseInt(n.slice(2, 4), 16);
@@ -22,6 +25,9 @@ export function shade(hex: string, amt: number): string {
 
 /** A 135° gradient woven from the brand color: lighter → base → deeper. */
 export function brandGradient(hex: string): string {
-  const base = hex || "#5B5FC7";
+  const base = hex || AGENTLOOM_PRIMARY;
+  if (base.toLowerCase() === AGENTLOOM_PRIMARY.toLowerCase()) {
+    return `linear-gradient(135deg, ${AGENTLOOM_BRAND_COLORS[0]} 0%, ${AGENTLOOM_BRAND_COLORS[1]} 52%, ${AGENTLOOM_BRAND_COLORS[2]} 100%)`;
+  }
   return `linear-gradient(135deg, ${shade(base, 0.18)} 0%, ${base} 45%, ${shade(base, -0.32)} 100%)`;
 }

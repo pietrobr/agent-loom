@@ -21,6 +21,10 @@ import {
   DialogContent,
   makeStyles,
   tokens,
+  OverlayDrawer,
+  DrawerHeader,
+  DrawerHeaderTitle,
+  DrawerBody,
 } from "@fluentui/react-components";
 import {
   Delete24Regular,
@@ -28,17 +32,22 @@ import {
   Search24Regular,
   Open16Regular,
   Wrench20Regular,
+  Add20Filled,
+  Dismiss24Regular,
+  DocumentArrowUp20Regular,
 } from "@fluentui/react-icons";
 import { api, AgentInfo, Instance, Tenant, Template } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
 
 const useStyles = makeStyles({
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
+  layout: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "860px" },
   list: { display: "flex", flexDirection: "column", gap: "12px" },
-  form: { display: "flex", flexDirection: "column", gap: "10px" },
+  form: { display: "flex", flexDirection: "column", gap: "10px", paddingBottom: "16px" },
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
+  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
+  toolbar: { display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
   cardTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" },
   cardEditing: {
     outline: `2px solid ${tokens.colorBrandStroke1}`,
@@ -116,6 +125,10 @@ export function InstancesPage() {
   // Instance removal
   const [toDelete, setToDelete] = useState<Instance | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Slide-in panels
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   // Per-instance Foundry agent panel (portal link + tools), lazy-loaded.
   const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({});
@@ -219,6 +232,17 @@ export function InstancesPage() {
     setAddendum("");
     setSuggested("");
     setModel("");
+    setAssignOpen(false);
+  }
+
+  function openAssignNew() {
+    setEditingId(null);
+    setTemplateId("");
+    setDisplayName("");
+    setAddendum("");
+    setSuggested("");
+    setModel("");
+    setAssignOpen(true);
   }
 
   function editInstance(i: Instance) {
@@ -228,6 +252,7 @@ export function InstancesPage() {
     setAddendum(String(i.overrides?.instructions_addendum || ""));
     setSuggested((i.suggested_questions || []).join("\n"));
     setModel(i.model || "");
+    setAssignOpen(true);
   }
 
   async function upload() {
@@ -289,8 +314,8 @@ export function InstancesPage() {
   );
 
   return (
-    <div className={styles.grid}>
-      <div className={styles.list}>
+    <>
+      <div className={styles.layout}>
         <Text weight="semibold" size={500}>
           Customers
         </Text>
@@ -353,9 +378,28 @@ export function InstancesPage() {
           </div>
         )}
 
-        <Text weight="semibold" size={500}>
-          Instances for {customers.find((c) => c.org_id === orgId)?.name || orgId || "—"}
-        </Text>
+        <div className={styles.header}>
+          <Text weight="semibold" size={500}>
+            Instances for {customers.find((c) => c.org_id === orgId)?.name || orgId || "—"}
+          </Text>
+          <div className={styles.toolbar}>
+            <Button
+              appearance="primary"
+              icon={<Add20Filled />}
+              disabled={!orgId}
+              onClick={openAssignNew}
+            >
+              Assign template
+            </Button>
+            <Button
+              icon={<DocumentArrowUp20Regular />}
+              disabled={!orgId || !instances.length}
+              onClick={() => setUploadOpen(true)}
+            >
+              Upload knowledge
+            </Button>
+          </div>
+        </div>
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
         {instances.map((i) => (
@@ -476,11 +520,17 @@ export function InstancesPage() {
         ))}
       </div>
 
-      <div className={styles.list}>
-        <Card className={styles.card}>
-          <Text weight="semibold" size={500}>
+      <OverlayDrawer position="end" open={assignOpen} onOpenChange={(_, d) => setAssignOpen(d.open)} size="medium">
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button appearance="subtle" aria-label="Close" icon={<Dismiss24Regular />} onClick={() => setAssignOpen(false)} />
+            }
+          >
             {editingId ? "Edit instance" : "Assign template"}
-          </Text>
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
           <Text size={200}>
             {editingId
               ? "Update this instance's display name, guidance and suggested questions. The template and its Foundry agent stay the same."
@@ -558,12 +608,20 @@ export function InstancesPage() {
               )}
             </div>
           </div>
-        </Card>
+        </DrawerBody>
+      </OverlayDrawer>
 
-        <Card className={styles.card}>
-          <Text weight="semibold" size={500}>
+      <OverlayDrawer position="end" open={uploadOpen} onOpenChange={(_, d) => setUploadOpen(d.open)} size="medium">
+        <DrawerHeader>
+          <DrawerHeaderTitle
+            action={
+              <Button appearance="subtle" aria-label="Close" icon={<Dismiss24Regular />} onClick={() => setUploadOpen(false)} />
+            }
+          >
             Upload knowledge (private)
-          </Text>
+          </DrawerHeaderTitle>
+        </DrawerHeader>
+        <DrawerBody>
           <Text size={200}>
             Stored in a per-instance Blob folder and indexed into kb-{orgId}
             (scoped to the chosen instance). Removed when the instance is deleted.
@@ -603,8 +661,8 @@ export function InstancesPage() {
             </Button>
             {uploadMsg && <MessageBar intent="info">{uploadMsg}</MessageBar>}
           </div>
-        </Card>
-      </div>
+        </DrawerBody>
+      </OverlayDrawer>
 
       <Dialog open={!!toDelete} onOpenChange={(_, d) => !d.open && setToDelete(null)}>
         <DialogSurface>
@@ -634,6 +692,6 @@ export function InstancesPage() {
           </DialogBody>
         </DialogSurface>
       </Dialog>
-    </div>
+    </>
   );
 }

@@ -1,23 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
   <defs>
-    <linearGradient id="aglBg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8A8EF0"/>
-      <stop offset="0.5" stop-color="#5B5FC7"/>
-      <stop offset="1" stop-color="#372A8A"/>
+    <linearGradient id="aglBg" x1="3" y1="5" x2="37" y2="36" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00A8A8"/>
+      <stop offset="0.55" stop-color="#138DDE"/>
+      <stop offset="1" stop-color="#4F6BFF"/>
     </linearGradient>
   </defs>
-  <rect width="40" height="40" rx="10" fill="url(#aglBg)"/>
-  <!-- warp: vertical threads -->
-  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" opacity="0.92">
-    <path d="M12 10v20"/>
-    <path d="M20 10v20"/>
-    <path d="M28 10v20"/>
+  <rect x="2" y="2" width="36" height="36" rx="9" fill="url(#aglBg)"/>
+  <g stroke="#FFFFFF" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 11V29"/>
+    <path d="M20 11V29"/>
+    <path d="M28 11V29"/>
+    <path d="M8.5 16.4C13.4 16.4 13.6 20 18.7 20C23.9 20 24.8 13.6 31.5 20C24.8 26.4 23.9 20 18.7 20C13.6 20 13.4 23.6 8.5 23.6" fill="none"/>
   </g>
-  <!-- weft: woven waves -->
-  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.85">
-    <path d="M8.5 15c3.8 0 3.8 3 7.5 3s3.7-3 7.5-3 3.7 3 7.5 3"/>
-    <path d="M8.5 25c3.8 0 3.8-3 7.5-3s3.7 3 7.5 3 3.7-3 7.5-3"/>
-  </g>
-  <circle cx="12" cy="20" r="2.3" fill="#ffffff"/>
-  <circle cx="28" cy="20" r="2.3" fill="#ffffff"/>
 </svg>

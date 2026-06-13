@@ -33,8 +33,9 @@ const useStyles = makeStyles({
     justifyContent: "center",
     gap: "8px",
     padding: "6px 12px",
-    backgroundColor: "#7A4D00",
-    color: "#FFE8B3",
+    backgroundColor: "#053B5E",
+    color: "#EAFBFF",
+    borderBottom: "2px solid #00A8A8",
     fontSize: "12px",
     fontWeight: 600,
   },
@@ -180,7 +181,7 @@ export function App() {
     setBusy(false);
   }
 
-  const color = branding?.primary_color || "#5B5FC7";
+  const color = branding?.primary_color || "#138DDE";
   const suggestions =
     customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
 

@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7FAFC"/>
+      <stop offset="0.52" stop-color="#EEF7F4"/>
+      <stop offset="1" stop-color="#E8EFFB"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="260" y2="260" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00A8A8"/>
+      <stop offset="0.52" stop-color="#4F6BFF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="1200" height="630" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#0B1F33" flood-opacity="0.14"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <g opacity="0.48" stroke="#C8D7E3" stroke-width="1.2">
+    <path d="M852 60L1052 216L964 498L674 492L586 215L852 60Z"/>
+    <path d="M732 143L1008 145L1080 398L842 566L610 398L732 143Z"/>
+    <path d="M660 314H1092"/>
+    <path d="M852 60V566"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="653" y="96" width="154" height="118" rx="16" fill="#FFFFFF"/>
+    <rect x="676" y="123" width="108" height="12" rx="6" fill="#00A8A8"/>
+    <rect x="676" y="151" width="74" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="676" y="174" width="92" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="834" y="208" width="180" height="132" rx="18" fill="#FFFFFF"/>
+    <rect x="860" y="238" width="96" height="12" rx="6" fill="#4F6BFF"/>
+    <rect x="860" y="269" width="126" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="860" y="294" width="98" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="638" y="382" width="196" height="138" rx="20" fill="#FFFFFF"/>
+    <rect x="668" y="414" width="122" height="12" rx="6" fill="#8B5CF6"/>
+    <rect x="668" y="446" width="136" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="668" y="471" width="88" height="10" rx="5" fill="#D6E2EA"/>
+    <rect x="878" y="424" width="164" height="112" rx="18" fill="#FFFFFF"/>
+    <rect x="904" y="452" width="82" height="12" rx="6" fill="#00A8A8"/>
+    <rect x="904" y="482" width="104" height="10" rx="5" fill="#D6E2EA"/>
+  </g>
+  <g stroke="url(#mark)" stroke-width="6" stroke-linecap="round" opacity="0.9">
+    <path d="M805 185L862 232"/>
+    <path d="M912 340L801 396"/>
+    <path d="M835 464L878 478"/>
+  </g>
+  <g transform="translate(92 96)">
+    <rect width="116" height="116" rx="28" fill="url(#mark)"/>
+    <path d="M35 29V87M58 29V87M81 29V87" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+    <path d="M24 43C38 43 38 57 52 57C66 57 66 43 80 43C91 43 95 52 101 56" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" fill="none"/>
+    <path d="M24 75C38 75 38 61 52 61C66 61 66 75 80 75C91 75 95 66 101 62" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" fill="none"/>
+  </g>
+  <text x="92" y="280" fill="#102033" font-family="Segoe UI, Arial, sans-serif" font-size="80" font-weight="760" letter-spacing="0">AgentLoom</text>
+  <text x="96" y="334" fill="#476071" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="500" letter-spacing="0">Turn reusable templates into isolated customer agents.</text>
+  <g transform="translate(96 404)" font-family="Segoe UI, Arial, sans-serif" font-size="19" font-weight="650" fill="#102033">
+    <rect width="150" height="48" rx="10" fill="#FFFFFF" stroke="#D8E3EA"/>
+    <text x="20" y="30">Catalog</text>
+    <rect x="166" width="150" height="48" rx="10" fill="#FFFFFF" stroke="#D8E3EA"/>
+    <text x="186" y="30">Tenants</text>
+    <rect x="332" width="126" height="48" rx="10" fill="#FFFFFF" stroke="#D8E3EA"/>
+    <text x="352" y="30">RAG</text>
+  </g>
+  <g transform="translate(96 470)" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#476071">
+    <text x="0" y="0">Built for partners shipping AI agent SaaS on Azure.</text>
+  </g>
+</svg>
