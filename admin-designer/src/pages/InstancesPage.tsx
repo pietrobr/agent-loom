@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -11,7 +11,6 @@ import {
   Option,
   Spinner,
   MessageBar,
-  Field,
   Dialog,
   DialogTrigger,
   DialogSurface,
@@ -20,9 +19,12 @@ import {
   DialogActions,
   DialogContent,
   makeStyles,
+  tokens,
 } from "@fluentui/react-components";
-import { Delete24Regular } from "@fluentui/react-icons";
+import { Delete24Regular, Search24Regular } from "@fluentui/react-icons";
 import { api, Instance, Tenant, Template } from "../api";
+
+const CUSTOMER_PAGE_SIZE = 8;
 
 const useStyles = makeStyles({
   grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
@@ -31,6 +33,29 @@ const useStyles = makeStyles({
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
   cardTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" },
+  customerList: {
+    display: "flex",
+    flexDirection: "column",
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    borderRadius: tokens.borderRadiusMedium,
+    overflow: "hidden",
+  },
+  customerItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 12px",
+    cursor: "pointer",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke3}`,
+    backgroundColor: tokens.colorNeutralBackground1,
+    ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover },
+  },
+  customerItemActive: {
+    backgroundColor: tokens.colorBrandBackground2,
+    ":hover": { backgroundColor: tokens.colorBrandBackground2Hover },
+  },
+  pager: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
 });
 
 export function InstancesPage() {
@@ -47,11 +72,15 @@ export function InstancesPage() {
   const [displayName, setDisplayName] = useState("");
   const [addendum, setAddendum] = useState("");
 
-  // Knowledge upload
+  // Customer picker (searchable + paginated)
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerPage, setCustomerPage] = useState(0);
+
+  // Knowledge upload (supports multiple files)
   const [kInstanceId, setKInstanceId] = useState("");
-  const [kTitle, setKTitle] = useState("");
-  const [kFile, setKFile] = useState<File | null>(null);
+  const [kFiles, setKFiles] = useState<File[]>([]);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   // Instance removal
   const [toDelete, setToDelete] = useState<Instance | null>(null);
@@ -109,15 +138,30 @@ export function InstancesPage() {
   }
 
   async function upload() {
-    if (!kFile || !kTitle || !kInstanceId) return;
+    if (!kFiles.length || !kInstanceId) return;
     setUploadMsg("");
+    setUploading(true);
+    let ok = 0;
+    const errors: string[] = [];
     try {
-      const r = await api.uploadKnowledge(orgId, kInstanceId, kTitle, "upload", kFile);
-      setUploadMsg(`Indexed doc ${r.id}`);
-      setKTitle("");
-      setKFile(null);
-    } catch (e: any) {
-      setUploadMsg("Error: " + e.message);
+      for (const f of kFiles) {
+        try {
+          // Use the file name (without extension) as the document title.
+          const title = f.name.replace(/\.[^.]+$/, "");
+          await api.uploadKnowledge(orgId, kInstanceId, title, "upload", f);
+          ok += 1;
+        } catch (e: any) {
+          errors.push(`${f.name}: ${e.message}`);
+        }
+      }
+      setUploadMsg(
+        errors.length
+          ? `Indexed ${ok}/${kFiles.length}. Errors: ${errors.join("; ")}`
+          : `Indexed ${ok} file(s).`
+      );
+      if (!errors.length) setKFiles([]);
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -136,25 +180,88 @@ export function InstancesPage() {
     }
   }
 
+  // Customer search + pagination (client-side; the list is small in the MVP).
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return customers;
+    return customers.filter(
+      (c) => c.name.toLowerCase().includes(q) || c.org_id.toLowerCase().includes(q)
+    );
+  }, [customers, customerSearch]);
+
+  const totalCustomerPages = Math.max(1, Math.ceil(filteredCustomers.length / CUSTOMER_PAGE_SIZE));
+  const pagedCustomers = filteredCustomers.slice(
+    customerPage * CUSTOMER_PAGE_SIZE,
+    customerPage * CUSTOMER_PAGE_SIZE + CUSTOMER_PAGE_SIZE
+  );
+
   return (
     <div className={styles.grid}>
       <div className={styles.list}>
-        <Field label="Customer">
-          <Dropdown
-            value={customers.find((c) => c.org_id === orgId)?.name || ""}
-            selectedOptions={[orgId]}
-            onOptionSelect={(_, d) => setOrgId(d.optionValue || "")}
-          >
-            {customers.map((c) => (
-              <Option key={c.org_id} value={c.org_id}>
-                {c.name}
-              </Option>
-            ))}
-          </Dropdown>
-        </Field>
+        <Text weight="semibold" size={500}>
+          Customers
+        </Text>
+        <Input
+          placeholder="Search customers by name or ID…"
+          contentBefore={<Search24Regular />}
+          value={customerSearch}
+          onChange={(_, d) => {
+            setCustomerSearch(d.value);
+            setCustomerPage(0);
+          }}
+        />
+        <div className={styles.customerList}>
+          {pagedCustomers.map((c) => (
+            <div
+              key={c.org_id}
+              className={
+                c.org_id === orgId
+                  ? `${styles.customerItem} ${styles.customerItemActive}`
+                  : styles.customerItem
+              }
+              onClick={() => setOrgId(c.org_id)}
+            >
+              <div>
+                <Text weight={c.org_id === orgId ? "semibold" : "regular"}>{c.name}</Text>
+                <div>
+                  <Text size={100} font="monospace">{c.org_id}</Text>
+                </div>
+              </div>
+              <Text size={100}>{c.tier}</Text>
+            </div>
+          ))}
+          {!pagedCustomers.length && (
+            <div className={styles.customerItem} style={{ cursor: "default" }}>
+              <Text size={200} italic>No customers match “{customerSearch}”.</Text>
+            </div>
+          )}
+        </div>
+        {totalCustomerPages > 1 && (
+          <div className={styles.pager}>
+            <Button
+              size="small"
+              appearance="secondary"
+              disabled={customerPage === 0}
+              onClick={() => setCustomerPage((p) => Math.max(0, p - 1))}
+            >
+              Prev
+            </Button>
+            <Text size={200}>
+              Page {customerPage + 1} / {totalCustomerPages} · {filteredCustomers.length} customer(s)
+            </Text>
+            <Button
+              size="small"
+              appearance="secondary"
+              disabled={customerPage >= totalCustomerPages - 1}
+              onClick={() => setCustomerPage((p) => Math.min(totalCustomerPages - 1, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        )}
 
         <Text weight="semibold" size={500}>
-          Instances for {orgId || "—"}
+          Instances for {customers.find((c) => c.org_id === orgId)?.name || orgId || "—"}
         </Text>
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
@@ -232,6 +339,7 @@ export function InstancesPage() {
           <Text size={200}>
             Stored in a per-instance Blob folder and indexed into kb-{orgId}
             (scoped to the chosen instance). Removed when the instance is deleted.
+            You can select multiple files — each file name becomes its document title.
           </Text>
           <div className={styles.form}>
             <Label>Instance</Label>
@@ -246,20 +354,24 @@ export function InstancesPage() {
                 </Option>
               ))}
             </Dropdown>
-            <Label>Title</Label>
-            <Input value={kTitle} onChange={(_, d) => setKTitle(d.value)} />
-            <Label>File (.txt / .md)</Label>
+            <Label>Files (.txt / .md / .json) — multiple allowed</Label>
             <input
               type="file"
+              multiple
               accept=".txt,.md,.json"
-              onChange={(e) => setKFile(e.target.files?.[0] || null)}
+              onChange={(e) => setKFiles(Array.from(e.target.files || []))}
             />
+            {kFiles.length > 0 && (
+              <Text size={200}>
+                {kFiles.length} file(s) selected: {kFiles.map((f) => f.name).join(", ")}
+              </Text>
+            )}
             <Button
               appearance="primary"
               onClick={upload}
-              disabled={!orgId || !kInstanceId || !kFile || !kTitle}
+              disabled={!orgId || !kInstanceId || !kFiles.length || uploading}
             >
-              Upload &amp; index
+              {uploading ? <Spinner size="tiny" /> : `Upload & index ${kFiles.length || ""}`.trim()}
             </Button>
             {uploadMsg && <MessageBar intent="info">{uploadMsg}</MessageBar>}
           </div>
