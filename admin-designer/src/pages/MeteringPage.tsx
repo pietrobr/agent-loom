@@ -186,11 +186,6 @@ export function MeteringPage() {
           >
             <div>
               <Text weight={c.org_id === orgId ? "semibold" : "regular"}>{c.name}</Text>
-              <div>
-                <Text size={100} font="monospace">
-                  {c.org_id}
-                </Text>
-              </div>
             </div>
             <Text size={100}>{c.tier}</Text>
           </div>
