@@ -19,6 +19,7 @@ import { Search24Regular } from "@fluentui/react-icons";
 import { api, Metering, MeteringDay, Tenant } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
+const ALL_ORG = "__all__";
 type Granularity = "daily" | "weekly" | "monthly";
 type Metric = "tokens" | "calls";
 
@@ -126,7 +127,7 @@ export function MeteringPage() {
       .listCustomers()
       .then((c) => {
         setCustomers(c);
-        if (c.length) setOrgId(c[0].org_id);
+        setOrgId(ALL_ORG); // default to the aggregate "All customers" view
       })
       .catch((e) => setErr(e.message));
   }, []);
@@ -135,12 +136,46 @@ export function MeteringPage() {
     if (!orgId) return;
     setLoading(true);
     setErr("");
+
+    if (orgId === ALL_ORG) {
+      // Aggregate every customer's metering into one combined summary.
+      Promise.all(customers.map((c) => api.metering(c.org_id).catch(() => null)))
+        .then((all) => {
+          const valid = all.filter((m): m is Metering => !!m);
+          const byInstance: Record<string, { calls: number; tokens: number }> = {};
+          const byDayMap: Record<string, { calls: number; tokens: number }> = {};
+          let calls = 0;
+          let totalTokens = 0;
+          for (const m of valid) {
+            calls += m.calls || 0;
+            totalTokens += m.total_tokens || 0;
+            for (const [k, v] of Object.entries(m.by_instance || {})) {
+              const b = (byInstance[k] = byInstance[k] || { calls: 0, tokens: 0 });
+              b.calls += v.calls;
+              b.tokens += v.tokens;
+            }
+            for (const d of m.by_day || []) {
+              const b = (byDayMap[d.date] = byDayMap[d.date] || { calls: 0, tokens: 0 });
+              b.calls += d.calls;
+              b.tokens += d.tokens;
+            }
+          }
+          const by_day = Object.entries(byDayMap)
+            .map(([date, v]) => ({ date, calls: v.calls, tokens: v.tokens }))
+            .sort((a, b) => a.date.localeCompare(b.date));
+          setData({ calls, total_tokens: totalTokens, by_instance: byInstance, by_day });
+        })
+        .catch((e) => setErr(e.message))
+        .finally(() => setLoading(false));
+      return;
+    }
+
     api
       .metering(orgId)
       .then(setData)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
-  }, [orgId]);
+  }, [orgId, customers]);
 
   const filteredCustomers = useMemo(() => {
     const q = customerSearch.trim().toLowerCase();
@@ -174,6 +209,19 @@ export function MeteringPage() {
         }}
       />
       <div className={styles.customerList}>
+        <div
+          className={
+            orgId === ALL_ORG
+              ? `${styles.customerItem} ${styles.customerItemActive}`
+              : styles.customerItem
+          }
+          onClick={() => setOrgId(ALL_ORG)}
+        >
+          <div>
+            <Text weight={orgId === ALL_ORG ? "semibold" : "regular"}>All customers</Text>
+          </div>
+          <Text size={100}>total</Text>
+        </div>
         {pagedCustomers.map((c) => (
           <div
             key={c.org_id}
