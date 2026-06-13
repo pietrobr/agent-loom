@@ -51,6 +51,7 @@ var names = {
   storage:      take('${replace(baseName, '-', '')}st${suffix}', 24)
   acr:          take('${replace(baseName, '-', '')}acr${suffix}', 50)
   managedEnv:   '${baseName}-cae-${suffix}'
+  vnet:         '${baseName}-vnet-${suffix}'
   identity:     '${baseName}-id-${suffix}'
   foundry:      take('${baseName}-aif-${suffix}', 60)
   foundryProj:  'project'
@@ -83,6 +84,18 @@ module observability 'modules/observability.bicep' = {
     location: location
     logAnalyticsName: names.logAnalytics
     appInsightsName: names.appInsights
+    tags: commonTags
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Networking (VNet + private DNS) for private connectivity to Cosmos/Storage
+// ---------------------------------------------------------------------------
+module network 'modules/network.bicep' = {
+  name: 'network'
+  params: {
+    location: location
+    name: names.vnet
     tags: commonTags
   }
 }
@@ -174,6 +187,35 @@ module foundry 'modules/foundry.bicep' = {
 }
 
 // ---------------------------------------------------------------------------
+// Private endpoints (Cosmos + Storage are policy-restricted to no public access)
+// ---------------------------------------------------------------------------
+module cosmosPe 'modules/privateEndpoint.bicep' = {
+  name: 'cosmosPe'
+  params: {
+    location: location
+    name: '${names.cosmos}-pe'
+    tags: commonTags
+    subnetId: network.outputs.peSubnetId
+    serviceId: cosmos.outputs.id
+    groupId: 'Sql'
+    dnsZoneId: network.outputs.cosmosDnsZoneId
+  }
+}
+
+module storagePe 'modules/privateEndpoint.bicep' = {
+  name: 'storagePe'
+  params: {
+    location: location
+    name: '${names.storage}-pe'
+    tags: commonTags
+    subnetId: network.outputs.peSubnetId
+    serviceId: storage.outputs.id
+    groupId: 'blob'
+    dnsZoneId: network.outputs.blobDnsZoneId
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Container Apps Environment + three Container Apps
 // ---------------------------------------------------------------------------
 module containerEnv 'modules/containerenv.bicep' = {
@@ -183,6 +225,7 @@ module containerEnv 'modules/containerenv.bicep' = {
     name: names.managedEnv
     logAnalyticsCustomerId: observability.outputs.logAnalyticsCustomerId
     logAnalyticsSharedKey: observability.outputs.logAnalyticsSharedKey
+    infrastructureSubnetId: network.outputs.infraSubnetId
     tags: commonTags
   }
 }

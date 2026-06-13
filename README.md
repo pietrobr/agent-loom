@@ -32,10 +32,15 @@ flowchart LR
 
     subgraph Azure["Partner Azure subscription (single deployment)"]
       direction TB
-      FE[FastAPI front door<br/>+ tenant middleware]
-      COS[(Cosmos DB<br/>pk = org_id)]
+      subgraph VNet["Virtual network"]
+        ENV[Container Apps Environment<br/>VNet-integrated]
+        FE[FastAPI front door<br/>+ tenant middleware]
+        PE{{Private endpoints}}
+        ENV --- FE
+      end
+      COS[(Cosmos DB<br/>pk = org_id<br/>public access DISABLED)]
       SR[(Azure AI Search<br/>kb-&#123;org_id&#125; index/customer)]
-      BL[(Blob Storage<br/>PRIVATE — MI only)]
+      BL[(Blob Storage<br/>PRIVATE — MI only<br/>public access DISABLED)]
       KV[(Key Vault)]
       MI([User-assigned<br/>Managed Identity])
       FA[[Microsoft Foundry<br/>Agent Service]]
@@ -43,13 +48,20 @@ flowchart LR
 
     CW -- "Bearer JWT (org_id claim)" --> FE
     AD -- "admin JWT" --> FE
-    FE -- org_id filter --> COS
+    FE -- org_id filter --> PE -. private link .-> COS
+    FE -- MI --> PE -. private link .-> BL
     FE -- org_id filter --> SR
-    FE -- MI --> BL
     FE -- MI --> KV
     FE -- MI --> FA
     MI -. least-privilege RBAC .-> COS & SR & BL & KV & FA
 ```
+
+**Private networking:** Cosmos DB and Blob Storage have **public network access
+disabled** (tenant-policy compliant). The Container Apps environment is
+**integrated into a VNet** and reaches them over **private endpoints** with
+private DNS zones — no traffic over the public internet. Azure AI Search,
+Foundry and Key Vault are reached via managed identity over their service
+endpoints.
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
 `org_id` from the token, enforces isolation) → backend retrieves the customer's
@@ -65,8 +77,8 @@ the customer's metering partition.
 AgentLoom/
 ├─ azure.yaml                 # azd project (3 services + post-provision hook)
 ├─ infra/                     # Modular Bicep
-│  ├─ main.bicep              # root: identity, KV, Cosmos, Search, Storage, ACR, Foundry, ACA
-│  └─ modules/*.bicep
+│  ├─ main.bicep              # root: network, identity, KV, Cosmos, Search, Storage, ACR, Foundry, ACA
+│  └─ modules/*.bicep         # incl. network.bicep (VNet + DNS) + privateEndpoint.bicep
 ├─ backend/                   # FastAPI front door
 │  └─ app/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py
@@ -115,9 +127,10 @@ azd up
 
 `azd up` will:
 
-1. Provision all infrastructure from `infra/` (managed identity, Key Vault,
-   private Storage, Cosmos, AI Search, ACR, Foundry account+project+model, and
-   three Container Apps with scale-to-zero).
+1. Provision all infrastructure from `infra/` (a VNet with private endpoints,
+   managed identity, Key Vault, private Storage, Cosmos, AI Search, ACR, Foundry
+   account+project+model, and a VNet-integrated Container Apps environment with
+   three Container Apps that scale to zero).
 2. Build and push the backend + two web app images to ACR.
 3. Run the **post-provision hook** (`scripts/setup.*`), which:
    - creates the **2 Foundry agent templates** (`create_foundry_agents.py`), and

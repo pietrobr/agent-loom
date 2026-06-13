@@ -1,17 +1,15 @@
-import { useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   Tab,
   TabList,
   Text,
   Button,
-  Input,
   makeStyles,
   tokens,
   Badge,
 } from "@fluentui/react-components";
 import { useBranding } from "./branding";
-import { getToken, setToken, clearToken, devAdminLogin } from "./api";
+import { getToken, clearToken, devAdminLogin } from "./api";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { InstancesPage } from "./pages/InstancesPage";
@@ -48,7 +46,6 @@ export function App() {
   const branding = useBranding();
   const loc = useLocation();
   const navigate = useNavigate();
-  const [tok, setTok] = useState(getToken());
 
   const tabValue = loc.pathname.startsWith("/customers")
     ? "/customers"
@@ -66,7 +63,7 @@ export function App() {
       <header className={styles.header} style={{ backgroundColor: branding.PRIMARY_COLOR }}>
         <img src={branding.LOGO_URL} className={styles.logo} alt="logo" style={{ color: "#fff" }} />
         <Text weight="bold" size={500}>
-          {branding.PRODUCT_NAME} · Designer
+          {branding.PRODUCT_NAME} · SaaS Admin Console
         </Text>
         <div className={styles.spacer} />
         <div className={styles.tokenRow}>
@@ -83,24 +80,6 @@ export function App() {
             }}
           >
             Demo admin login
-          </Button>
-          <Input
-            size="small"
-            type="password"
-            placeholder="Admin JWT"
-            value={tok}
-            onChange={(_, d) => setTok(d.value)}
-            style={{ width: 200 }}
-          />
-          <Button
-            size="small"
-            appearance="secondary"
-            onClick={() => {
-              setToken(tok);
-              location.reload();
-            }}
-          >
-            Save token
           </Button>
           {getToken() ? (
             <Badge color="success" appearance="filled">

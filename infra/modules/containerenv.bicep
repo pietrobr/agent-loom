@@ -5,6 +5,9 @@ param logAnalyticsCustomerId string
 param logAnalyticsSharedKey string
 param tags object
 
+@description('Optional infrastructure subnet id for VNet integration. When set, the environment can reach private endpoints. Immutable after creation.')
+param infrastructureSubnetId string = ''
+
 resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: name
   location: location
@@ -16,6 +19,10 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
         customerId: logAnalyticsCustomerId
         sharedKey: logAnalyticsSharedKey
       }
+    }
+    vnetConfiguration: empty(infrastructureSubnetId) ? null : {
+      infrastructureSubnetId: infrastructureSubnetId
+      internal: false
     }
     zoneRedundant: false
   }

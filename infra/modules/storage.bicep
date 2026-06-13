@@ -21,7 +21,7 @@ resource sa 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     allowSharedKeyAccess: false
     allowCrossTenantReplication: false
     defaultToOAuthAuthentication: true
-    publicNetworkAccess: 'Enabled' // Restrict via private endpoints in prod.
+    publicNetworkAccess: 'Disabled' // Reached via private endpoint from the VNet.
     networkAcls: {
       defaultAction: 'Allow'
       bypass: 'AzureServices'

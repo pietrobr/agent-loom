@@ -39,6 +39,14 @@ const EMPTY = {
   branding: { product_name: "", primary_color: "#5B5FC7", logo_url: "/logo.svg", tagline: "" },
 };
 
+// Default monthly token allowance per tier. Selecting a tier prefills this
+// (the admin can still override the number manually).
+const TIER_QUOTAS: Record<string, number> = {
+  free: 100_000,
+  starter: 1_000_000,
+  pro: 5_000_000,
+};
+
 export function CustomersPage() {
   const styles = useStyles();
   const [items, setItems] = useState<Tenant[]>([]);
@@ -189,7 +197,7 @@ export function CustomersPage() {
         </Text>
         <Text size={200}>Saving auto-creates the per-customer Search index kb-&#123;org_id&#125;.</Text>
         <div className={styles.form}>
-          <Label>org_id (slug, immutable)</Label>
+          <Label>Customer ID (used at sign-in &amp; for data isolation — cannot be changed later)</Label>
           <Input value={draft.org_id} onChange={(_, d) => setDraft({ ...draft, org_id: d.value })} />
           <Label>Display name</Label>
           <Input value={draft.name} onChange={(_, d) => setDraft({ ...draft, name: d.value })} />
@@ -197,7 +205,14 @@ export function CustomersPage() {
           <Dropdown
             selectedOptions={[draft.tier]}
             value={draft.tier}
-            onOptionSelect={(_, d) => setDraft({ ...draft, tier: d.optionValue })}
+            onOptionSelect={(_, d) => {
+              const tier = d.optionValue as string;
+              setDraft({
+                ...draft,
+                tier,
+                monthly_token_quota: TIER_QUOTAS[tier] ?? draft.monthly_token_quota,
+              });
+            }}
           >
             <Option value="free">free</Option>
             <Option value="starter">starter</Option>
