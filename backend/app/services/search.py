@@ -102,6 +102,22 @@ def search(org_id: str, query: str, instance_id: str | None = None, top: int = 5
         return []
 
 
+def document_count(org_id: str) -> int:
+    """Total number of documents indexed for a customer (its kb-{org_id} index).
+
+    Used to weight infrastructure cost attribution. Returns 0 if the index does
+    not exist yet or the count cannot be read.
+    """
+    name = index_name_for(org_id)
+    try:
+        return int(_search_client(name).get_document_count())
+    except ResourceNotFoundError:
+        return 0
+    except Exception as exc:  # pragma: no cover
+        log.info("document_count(%s) ignored: %s", org_id, exc)
+        return 0
+
+
 def delete_instance_docs(org_id: str, instance_id: str) -> int:
     """Delete every indexed document that belongs to a given instance. Returns
     the count removed (best-effort, idempotent)."""

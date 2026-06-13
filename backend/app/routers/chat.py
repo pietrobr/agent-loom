@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import anyio
@@ -101,6 +102,7 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             "org_id": p.org_id,
             "instance_id": req.instance_id,
             "template_id": template["id"],
+            "ts": datetime.now(timezone.utc).isoformat(),
             "input_tokens": usage_info.get("input", 0),
             "output_tokens": usage_info.get("output", 0),
             "total_tokens": usage_info.get("total", 0),

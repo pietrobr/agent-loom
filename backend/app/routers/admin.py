@@ -64,7 +64,11 @@ def upsert_customer(payload: Dict[str, Any], _: Principal = Depends(require_admi
     tenant = Tenant(**payload)
     # Always provision the per-customer Search index.
     tenant.search_index = search.ensure_index(tenant.org_id)
-    return cosmos.save_tenant(tenant.model_dump())
+    saved = cosmos.save_tenant(tenant.model_dump())
+    # Track lifecycle: an enabled customer has an open active period; a disabled
+    # one is closed. This drives per-month active-days proration in the cost view.
+    cosmos.record_lifecycle(tenant.org_id, tenant.name, active=tenant.enabled)
+    return saved
 
 
 @router.get("/customers/{org_id}/metering")
@@ -72,6 +76,13 @@ def customer_metering(org_id: str, _: Principal = Depends(require_admin)) -> Dic
     if not cosmos.get_tenant(org_id):
         raise HTTPException(404, "unknown customer")
     return cosmos.metering_summary(org_id)
+
+
+@router.get("/costs")
+def solution_costs(_: Principal = Depends(require_admin)) -> Dict[str, Any]:
+    """Total Azure cost of the solution, attributed per customer and per month
+    from recorded usage (tokens, calls) and shared Search index allocation."""
+    return cosmos.cost_summary()
 
 
 @router.delete("/customers/{org_id}")
@@ -88,6 +99,10 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
         )
     # No instances → safe to drop the (now-empty) Search index and the tenant.
     search.delete_index(org_id)
+    # Close the active period before removing the tenant; the lifecycle record
+    # lives in the metering partition and survives the deletion.
+    tenant = cosmos.get_tenant(org_id)
+    cosmos.record_lifecycle(org_id, (tenant or {}).get("name", org_id), active=False)
     cosmos.delete("tenants", org_id, org_id)
     return {"status": "deleted", "org_id": org_id}
 

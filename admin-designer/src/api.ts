@@ -116,10 +116,57 @@ export interface Instance {
   suggested_questions?: string[];
   foundry_agent_id?: string;
 }
+export interface MeteringDay {
+  date: string;
+  calls: number;
+  tokens: number;
+}
 export interface Metering {
   calls: number;
   total_tokens: number;
   by_instance: Record<string, { calls: number; tokens: number }>;
+  by_day?: MeteringDay[];
+}
+
+export interface CostClient {
+  org_id: string;
+  name: string;
+  tokens: number;
+  calls: number;
+  indices: number;
+  documents: number;
+  infra_weight: number;
+  active_days: number;
+  days_in_month: number;
+  active_fraction: number;
+  token_cost: number;
+  search_cost: number;
+  infra_cost: number;
+  total_cost: number;
+}
+export interface CostMonth {
+  month: string;
+  token_cost: number;
+  search_cost: number;
+  infra_cost: number;
+  infra_full?: number;
+  total_cost: number;
+  active_clients: number;
+  days_in_month?: number;
+  weights?: { tokens: number; calls: number; documents: number };
+  clients: CostClient[];
+}
+export interface CostSummary {
+  currency: string;
+  region?: string;
+  updated?: string | null;
+  source?: string;
+  search_monthly: number;
+  infra_monthly: number;
+  infra_breakdown: Record<string, number>;
+  weights?: { tokens: number; calls: number; documents: number };
+  total_cost: number;
+  by_month: CostMonth[];
 }
 export interface AgentTool {
   type?: string;
@@ -171,6 +218,8 @@ export const api = {
 
   metering: (orgId: string) =>
     req<Metering>(`/v1/admin/customers/${orgId}/metering`),
+
+  costs: () => req<CostSummary>("/v1/admin/costs"),
 
   uploadKnowledge: async (
     orgId: string,

@@ -10,11 +10,12 @@ import {
 } from "@fluentui/react-components";
 import { useBranding } from "./branding";
 import { brandGradient } from "./theme";
-import { getToken, clearToken, devAdminLogin } from "./api";
+import { getToken, devAdminLogin } from "./api";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { InstancesPage } from "./pages/InstancesPage";
 import { MeteringPage } from "./pages/MeteringPage";
+import { CostsPage } from "./pages/CostsPage";
 
 const useStyles = makeStyles({
   shell: { minHeight: "100vh", display: "flex", flexDirection: "column" },
@@ -55,6 +56,8 @@ export function App() {
     ? "/instances"
     : loc.pathname.startsWith("/metering")
     ? "/metering"
+    : loc.pathname.startsWith("/costs")
+    ? "/costs"
     : "/";
 
   return (
@@ -92,19 +95,6 @@ export function App() {
               no token
             </Badge>
           )}
-          {getToken() && (
-            <Button
-              size="small"
-              appearance="transparent"
-              style={{ color: "#fff" }}
-              onClick={() => {
-                clearToken();
-                location.reload();
-              }}
-            >
-              clear
-            </Button>
-          )}
         </div>
       </header>
 
@@ -117,6 +107,7 @@ export function App() {
         <Tab value="/customers">Customers</Tab>
         <Tab value="/instances">Instances</Tab>
         <Tab value="/metering">Metering</Tab>
+        <Tab value="/costs">Costs</Tab>
       </TabList>
 
       <main className={styles.body}>
@@ -125,6 +116,7 @@ export function App() {
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/instances" element={<InstancesPage />} />
           <Route path="/metering" element={<MeteringPage />} />
+          <Route path="/costs" element={<CostsPage />} />
         </Routes>
       </main>
     </div>
