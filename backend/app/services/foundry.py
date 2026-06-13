@@ -48,6 +48,25 @@ def agent_name_for_instance(template_id: str, org_id: str) -> str:
     return _SAFE_NAME.sub("-", raw).strip("-")[:60]
 
 
+def list_model_deployments() -> List[str]:
+    """Return the names of the model deployments available in the Foundry project.
+
+    These are the deployment names usable as the agent ``model`` parameter (the
+    "Name" column in the Foundry portal's Deployed models table).
+    """
+    names: List[str] = []
+    try:
+        for dep in project_client().deployments.list(deployment_type="ModelDeployment"):
+            name = getattr(dep, "name", None)
+            if name:
+                names.append(name)
+    except Exception as exc:  # pragma: no cover - network/permission issues
+        log.warning("list_model_deployments failed: %s", exc)
+    # De-duplicate while preserving order.
+    seen: set[str] = set()
+    return [n for n in names if not (n in seen or seen.add(n))]
+
+
 def build_instance_instructions(base_instructions: str, addendum: Optional[str]) -> str:
     """Compose the per-instance agent system instructions: template base + the
     customer's own guidance. Keeping the guidance in the system prompt (instead
@@ -128,11 +147,16 @@ def stream_run(
 
     Events: ``token`` (delta text), ``usage`` (JSON with token counts),
     ``done`` (end marker), ``error`` (failure message).
+
+    Newer/preview model deployments occasionally return a transient
+    "unable to complete inference" internal error. If the stream fails BEFORE
+    any token is emitted, we retry once; once tokens have been sent we cannot
+    safely restart, so the error is surfaced.
     """
     content = _build_user_content(user_message, knowledge or [], instance_overrides or {})
     client = _openai_client()
 
-    try:
+    def _attempt() -> Iterator[tuple[str, str]]:
         with client.responses.create(
             conversation=thread_id,
             input=[{"role": "user", "content": content}],
@@ -155,10 +179,23 @@ def stream_run(
                             f'"total":{getattr(usage,"total_tokens",0)}}}',
                         )
                 elif etype == "error":
-                    yield ("error", str(getattr(event, "message", "stream error")))
-    except Exception as exc:  # pragma: no cover
-        log.exception("Foundry stream failed")
-        yield ("error", f"agent run failed: {exc}")
-        return
+                    raise RuntimeError(str(getattr(event, "message", "stream error")))
 
-    yield ("done", "")
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        produced = False
+        try:
+            for ev, data in _attempt():
+                if ev == "token":
+                    produced = True
+                yield (ev, data)
+            yield ("done", "")
+            return
+        except Exception as exc:  # pragma: no cover - network/model issues
+            if produced or attempt >= max_attempts:
+                log.exception("Foundry stream failed (attempt %d, gave up)", attempt)
+                yield ("error", f"agent run failed: {exc}")
+                yield ("done", "")
+                return
+            log.warning("Foundry stream failed (attempt %d), retrying: %s", attempt, exc)
+

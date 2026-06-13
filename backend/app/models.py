@@ -33,6 +33,9 @@ class Template(BaseModel):
     category: str = "general"
     foundry_agent_id: Optional[str] = None
     model: str = "gpt-4o-mini"
+    # Foundry model deployments the partner admin enabled for this template.
+    # When an instance is created the customer's model must be one of these.
+    allowed_models: List[str] = Field(default_factory=list)
     instructions: str = ""
     parameters: List[TemplateParam] = Field(default_factory=list)
     status: Literal["draft", "published"] = "draft"
@@ -72,6 +75,8 @@ class Instance(BaseModel):
     display_name: str
     overrides: Dict[str, Any] = Field(default_factory=dict)
     branding: Optional[Branding] = None
+    # Chosen Foundry model deployment (must be one of the template's allowed_models).
+    model: Optional[str] = None
     # Starter prompts shown as clickable chips in the customer chat.
     suggested_questions: List[str] = Field(default_factory=list)
     foundry_agent_id: Optional[str] = None  # real per-customer Foundry agent

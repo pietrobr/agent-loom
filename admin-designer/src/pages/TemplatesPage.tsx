@@ -29,6 +29,7 @@ const EMPTY: Partial<Template> = {
   description: "",
   category: "general",
   model: "gpt-4o-mini",
+  allowed_models: [],
   instructions: "",
   parameters: [],
   status: "draft",
@@ -38,6 +39,7 @@ export function TemplatesPage() {
   const styles = useStyles();
   const [items, setItems] = useState<Template[]>([]);
   const [draft, setDraft] = useState<Partial<Template>>(EMPTY);
+  const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
 
@@ -45,7 +47,12 @@ export function TemplatesPage() {
     setLoading(true);
     setErr("");
     try {
-      setItems(await api.listTemplates());
+      const [tpls, foundryModels] = await Promise.all([
+        api.listTemplates(),
+        api.listFoundryModels().catch(() => [] as string[]),
+      ]);
+      setItems(tpls);
+      setModels(foundryModels);
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -89,8 +96,9 @@ export function TemplatesPage() {
               description={<Text size={200}>{t.description}</Text>}
             />
             <Text size={200}>
-              category: {t.category} · model: {t.model} · a Foundry agent is
-              created per customer when an instance is configured
+              category: {t.category} · models:{" "}
+              {t.allowed_models?.length ? t.allowed_models.join(", ") : t.model} · a Foundry
+              agent is created per customer when an instance is configured
             </Text>
             <div className={styles.row}>
               <Button size="small" onClick={() => setDraft(t)}>
@@ -128,8 +136,44 @@ export function TemplatesPage() {
             value={draft.category || ""}
             onChange={(_, d) => setDraft({ ...draft, category: d.value })}
           />
-          <Label>Model deployment</Label>
-          <Input value={draft.model || ""} onChange={(_, d) => setDraft({ ...draft, model: d.value })} />
+          <Label>Enabled models (from Foundry — customers pick one of these)</Label>
+          <Dropdown
+            multiselect
+            placeholder={models.length ? "Select model deployments…" : "No Foundry deployments found"}
+            selectedOptions={draft.allowed_models || []}
+            value={(draft.allowed_models || []).join(", ")}
+            onOptionSelect={(_, d) => {
+              const allowed = d.selectedOptions;
+              setDraft({
+                ...draft,
+                allowed_models: allowed,
+                // keep a sensible default model for backwards compatibility
+                model: allowed.includes(draft.model || "") ? draft.model : allowed[0] || draft.model,
+              });
+            }}
+          >
+            {models.map((m) => (
+              <Option key={m} value={m}>
+                {m}
+              </Option>
+            ))}
+          </Dropdown>
+          {!!(draft.allowed_models && draft.allowed_models.length > 1) && (
+            <>
+              <Label>Default model</Label>
+              <Dropdown
+                value={draft.model || ""}
+                selectedOptions={[draft.model || ""]}
+                onOptionSelect={(_, d) => setDraft({ ...draft, model: d.optionValue || "" })}
+              >
+                {(draft.allowed_models || []).map((m) => (
+                  <Option key={m} value={m}>
+                    {m}
+                  </Option>
+                ))}
+              </Dropdown>
+            </>
+          )}
           <Label>Instructions</Label>
           <Textarea
             resize="vertical"

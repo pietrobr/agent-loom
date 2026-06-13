@@ -84,6 +84,7 @@ export interface Template {
   category: string;
   foundry_agent_id?: string;
   model: string;
+  allowed_models?: string[];
   instructions: string;
   parameters: TemplateParam[];
   status: "draft" | "published";
@@ -111,6 +112,7 @@ export interface Instance {
   display_name: string;
   overrides: Record<string, unknown>;
   branding?: Branding;
+  model?: string;
   suggested_questions?: string[];
   foundry_agent_id?: string;
 }
@@ -127,6 +129,7 @@ export const api = {
     req<Template>("/v1/admin/templates", { method: "POST", body: JSON.stringify(t) }),
   deleteTemplate: (id: string) =>
     req<void>(`/v1/admin/templates/${id}`, { method: "DELETE" }),
+  listFoundryModels: () => req<string[]>("/v1/admin/foundry/models"),
 
   listCustomers: () => req<Tenant[]>("/v1/admin/customers"),
   saveCustomer: (c: Partial<Tenant>) =>

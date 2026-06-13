@@ -21,7 +21,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Delete24Regular, Search24Regular } from "@fluentui/react-icons";
+import { Delete24Regular, Edit24Regular, Search24Regular } from "@fluentui/react-icons";
 import { api, Instance, Tenant, Template } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
@@ -33,6 +33,10 @@ const useStyles = makeStyles({
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
   cardTop: { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" },
+  cardEditing: {
+    outline: `2px solid ${tokens.colorBrandStroke1}`,
+    outlineOffset: "-1px",
+  },
   customerList: {
     display: "flex",
     flexDirection: "column",
@@ -72,7 +76,10 @@ export function InstancesPage() {
   const [displayName, setDisplayName] = useState("");
   const [addendum, setAddendum] = useState("");
   const [suggested, setSuggested] = useState("");
+  const [model, setModel] = useState("");
   const [assigning, setAssigning] = useState(false);
+  // When set, the form edits this existing instance instead of creating a new one.
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   // Customer picker (searchable + paginated)
   const [customerSearch, setCustomerSearch] = useState("");
@@ -132,21 +139,38 @@ export function InstancesPage() {
         .map((q) => q.trim())
         .filter(Boolean);
       await api.saveInstance(orgId, {
+        ...(editingId ? { id: editingId } : {}),
         template_id: templateId,
         display_name: displayName,
         overrides: addendum ? { instructions_addendum: addendum } : {},
         suggested_questions: questions,
+        ...(model ? { model } : {}),
       });
-      setTemplateId("");
-      setDisplayName("");
-      setAddendum("");
-      setSuggested("");
+      resetForm();
       await loadInstances(orgId);
     } catch (e: any) {
       setErr(e.message);
     } finally {
       setAssigning(false);
     }
+  }
+
+  function resetForm() {
+    setEditingId(null);
+    setTemplateId("");
+    setDisplayName("");
+    setAddendum("");
+    setSuggested("");
+    setModel("");
+  }
+
+  function editInstance(i: Instance) {
+    setEditingId(i.id);
+    setTemplateId(i.template_id);
+    setDisplayName(i.display_name);
+    setAddendum(String(i.overrides?.instructions_addendum || ""));
+    setSuggested((i.suggested_questions || []).join("\n"));
+    setModel(i.model || "");
   }
 
   async function upload() {
@@ -278,26 +302,43 @@ export function InstancesPage() {
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
         {instances.map((i) => (
-          <Card key={i.id} className={styles.card}>
+          <Card
+            key={i.id}
+            className={
+              i.id === editingId ? `${styles.card} ${styles.cardEditing}` : styles.card
+            }
+          >
             <div className={styles.cardTop}>
               <CardHeader
                 header={<Text weight="semibold">{i.display_name}</Text>}
                 description={
                   <Text size={200}>
-                    template: <code>{i.template_id}</code> · agent:{" "}
+                    template: <code>{i.template_id}</code>
+                    {i.model ? <> · model: <code>{i.model}</code></> : null} · agent:{" "}
                     {i.foundry_agent_id ? <code>{i.foundry_agent_id}</code> : <em>pending</em>}
                   </Text>
                 }
               />
-              <Button
-                size="small"
-                appearance="subtle"
-                icon={<Delete24Regular />}
-                aria-label="Remove instance"
-                onClick={() => setToDelete(i)}
-              >
-                Remove
-              </Button>
+              <div className={styles.row}>
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  icon={<Edit24Regular />}
+                  aria-label="Edit instance"
+                  onClick={() => editInstance(i)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  icon={<Delete24Regular />}
+                  aria-label="Remove instance"
+                  onClick={() => setToDelete(i)}
+                >
+                  Remove
+                </Button>
+              </div>
             </div>
             {i.overrides?.instructions_addendum && (
               <Text size={200} italic>
@@ -316,18 +357,27 @@ export function InstancesPage() {
       <div className={styles.list}>
         <Card className={styles.card}>
           <Text weight="semibold" size={500}>
-            Assign template
+            {editingId ? "Edit instance" : "Assign template"}
           </Text>
           <Text size={200}>
-            Creates a dedicated Foundry agent for this customer from the chosen
-            template blueprint.
+            {editingId
+              ? "Update this instance's display name, guidance and suggested questions. The template and its Foundry agent stay the same."
+              : "Creates a dedicated Foundry agent for this customer from the chosen template blueprint."}
           </Text>
           <div className={styles.form}>
             <Label>Template</Label>
             <Dropdown
               value={templates.find((t) => t.id === templateId)?.name || ""}
               selectedOptions={[templateId]}
-              onOptionSelect={(_, d) => setTemplateId(d.optionValue || "")}
+              disabled={!!editingId}
+              onOptionSelect={(_, d) => {
+                const id = d.optionValue || "";
+                setTemplateId(id);
+                // Default the model to the template's first enabled model.
+                const tpl = templates.find((t) => t.id === id);
+                const allowed = tpl?.allowed_models || [];
+                setModel(allowed.includes(model) ? model : allowed[0] || "");
+              }}
             >
               {templates.map((t) => (
                 <Option key={t.id} value={t.id}>
@@ -335,6 +385,27 @@ export function InstancesPage() {
                 </Option>
               ))}
             </Dropdown>
+            {(() => {
+              const tpl = templates.find((t) => t.id === templateId);
+              const allowed = tpl?.allowed_models || [];
+              if (allowed.length === 0) return null;
+              return (
+                <>
+                  <Label>Model (only those enabled by the template)</Label>
+                  <Dropdown
+                    value={model}
+                    selectedOptions={[model]}
+                    onOptionSelect={(_, d) => setModel(d.optionValue || "")}
+                  >
+                    {allowed.map((m) => (
+                      <Option key={m} value={m}>
+                        {m}
+                      </Option>
+                    ))}
+                  </Dropdown>
+                </>
+              );
+            })()}
             <Label>Display name</Label>
             <Input value={displayName} onChange={(_, d) => setDisplayName(d.value)} />
             <Label>Instructions addendum (customer override)</Label>
@@ -350,13 +421,20 @@ export function InstancesPage() {
               value={suggested}
               onChange={(_, d) => setSuggested(d.value)}
             />
-            <Button
-              appearance="primary"
-              onClick={assign}
-              disabled={!orgId || !templateId || !displayName || assigning}
-            >
-              {assigning ? <Spinner size="tiny" /> : "Assign"}
-            </Button>
+            <div className={styles.row}>
+              <Button
+                appearance="primary"
+                onClick={assign}
+                disabled={!orgId || !templateId || !displayName || assigning}
+              >
+                {assigning ? <Spinner size="tiny" /> : editingId ? "Save changes" : "Assign"}
+              </Button>
+              {editingId && (
+                <Button appearance="secondary" onClick={resetForm} disabled={assigning}>
+                  Cancel
+                </Button>
+              )}
+            </div>
           </div>
         </Card>
 
