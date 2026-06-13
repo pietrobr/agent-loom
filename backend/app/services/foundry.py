@@ -13,10 +13,12 @@ isolation is enforced by the ``org_id`` filter upstream.
 """
 from __future__ import annotations
 
+import base64
 import logging
 import re
 from functools import lru_cache
 from typing import Iterator, List, Optional
+from urllib.parse import quote
 
 from azure.ai.projects import AIProjectClient
 from azure.ai.projects.models import PromptAgentDefinition
@@ -106,6 +108,54 @@ def create_instance_agent(
     return create_template_agent(name=name, instructions=instructions, model=model)
 
 
+def reconcile_instance_agent(
+    template_id: str,
+    org_id: str,
+    base_instructions: str,
+    addendum: Optional[str] = None,
+    model: Optional[str] = None,
+    prev_addendum: Optional[str] = None,
+    prev_model: Optional[str] = None,
+    agent_exists: bool = False,
+) -> str:
+    """Create or update a customer's agent WITHOUT clobbering portal edits.
+
+    The decision is based on the APP-side inputs (model + addendum), not on the
+    live agent definition — because the Foundry portal normalises instructions
+    when an admin edits the agent there, which would otherwise look like a change.
+
+    - Agent doesn't exist yet → create it (v1).
+    - Exists and neither the model nor the addendum changed in AgentLoom → no-op
+      (preserves tools, knowledge and instruction tweaks made in the portal).
+    - Model or addendum changed → re-version, carrying over the tools currently
+      on the live agent so portal-added tools survive.
+    Returns the agent name.
+    """
+    name = agent_name_for_instance(template_id, org_id)
+    s = get_settings()
+    desired_model = model or s.foundry_model_deployment
+    desired_instructions = build_instance_instructions(base_instructions, addendum)
+
+    if not agent_exists:
+        return create_template_agent(name=name, instructions=desired_instructions, model=desired_model)
+
+    unchanged = (model or "") == (prev_model or "") and (addendum or "") == (prev_addendum or "")
+    if unchanged:
+        return name  # app inputs unchanged → leave the portal's agent untouched
+
+    # Re-version, preserving the tools already on the agent (portal-added too).
+    existing_tools = get_agent_details(name).get("tools") or []
+    agent = project_client().agents.create_version(
+        agent_name=name,
+        definition=PromptAgentDefinition(
+            model=desired_model,
+            instructions=desired_instructions,
+            tools=existing_tools or [],
+        ),
+    )
+    return agent.name
+
+
 def delete_agent(name: str) -> None:
     """Best-effort delete of a per-instance agent (idempotent)."""
     try:
@@ -117,6 +167,129 @@ def delete_agent(name: str) -> None:
 def create_thread() -> str:
     """Create a server-side conversation; returns its id (kept name for compat)."""
     return _openai_client().conversations.create().id
+
+
+# --------------------------------------------------------------------------- #
+# Agent inspection (model, tools) + portal deep link                          #
+# --------------------------------------------------------------------------- #
+def _to_plain(obj: object) -> object:
+    """Best-effort convert an SDK model (MutableMapping/attrs) to plain data."""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(v) for v in obj]
+    as_dict = getattr(obj, "as_dict", None)
+    if callable(as_dict):
+        try:
+            return _to_plain(as_dict())
+        except Exception:  # pragma: no cover
+            pass
+    if hasattr(obj, "items"):
+        try:
+            return {k: _to_plain(v) for k, v in obj.items()}  # type: ignore[attr-defined]
+        except Exception:  # pragma: no cover
+            pass
+    return obj
+
+
+def _latest_version(name: str):
+    """Return the most recent AgentVersionDetails for an agent (or None)."""
+    try:
+        versions = list(project_client().agents.list_versions(name, limit=1, order="desc"))
+        if versions:
+            return versions[0]
+    except Exception as exc:  # pragma: no cover
+        log.warning("list_versions(%s) failed: %s", name, exc)
+    return None
+
+
+def _tool_key(tool: dict) -> str:
+    """Stable identity for a tool: type + optional name (function tools)."""
+    t = tool.get("type", "tool")
+    n = tool.get("name") or (tool.get("function") or {}).get("name") or ""
+    return f"{t}:{n}" if n else t
+
+
+def _extract_definition(details) -> dict:
+    """Pull the agent definition (model/instructions/tools) out of version details."""
+    plain = _to_plain(details) or {}
+    if not isinstance(plain, dict):
+        return {}
+    # The definition may be nested under 'definition' or inlined.
+    return plain.get("definition") if isinstance(plain.get("definition"), dict) else plain
+
+
+def get_agent_details(name: str) -> dict:
+    """Read a customer agent's current model, instructions and configured tools."""
+    details = _latest_version(name)
+    out = {"name": name, "version": None, "model": None, "instructions": "", "tools": []}
+    if details is None:
+        return out
+    plain = _to_plain(details) or {}
+    out["version"] = (plain.get("version") if isinstance(plain, dict) else None) or getattr(details, "version", None)
+    definition = _extract_definition(details)
+    out["model"] = definition.get("model")
+    out["instructions"] = definition.get("instructions") or ""
+    tools = definition.get("tools") or []
+    out["tools"] = [t for t in (_to_plain(tools) or []) if isinstance(t, dict)]
+    return out
+
+
+def portal_url_for_agent(name: str) -> Optional[str]:
+    """Direct deep link into the Azure AI Foundry portal that opens THIS agent.
+
+    The new ("nextgen") portal routes a project as
+    ``/nextgen/r/{token},{rg},,{account},{project}`` where ``token`` is the
+    subscription GUID encoded as base64url, then the agent as
+    ``/build/agents/{agentName}/build``. We derive everything from the project's
+    ARM id carried in ``FOUNDRY_PORTAL_URL`` (the ``wsid`` query value).
+    Falls back to the plain project URL if the ARM id can't be parsed.
+    """
+    base = get_settings().foundry_portal_url
+    if not base:
+        return None
+
+    m = re.search(r"wsid=([^&]+)", base)
+    wsid = m.group(1) if m else base
+    am = re.search(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/"
+        r"Microsoft\.CognitiveServices/accounts/([^/]+)/projects/([^/?&]+)",
+        wsid,
+        re.IGNORECASE,
+    )
+    if not am:
+        # Couldn't parse — return the project URL (still useful) with tid.
+        tid = get_settings().foundry_tenant_id
+        if tid and "tid=" not in base:
+            sep = "&" if "?" in base else "?"
+            return f"{base}{sep}tid={tid}"
+        return base
+
+    sub, rg, account, project = am.group(1), am.group(2), am.group(3), am.group(4)
+    try:
+        token = base64.urlsafe_b64encode(bytes.fromhex(sub.replace("-", ""))).rstrip(b"=").decode()
+    except ValueError:
+        token = sub  # not a GUID (shouldn't happen) — degrade gracefully
+    return (
+        f"https://ai.azure.com/nextgen/r/{token},{rg},,{account},{project}"
+        f"/build/agents/{quote(name, safe='')}/build"
+    )
+
+
+def set_agent_tools(name: str, model: str, instructions: str, tools: list[dict]) -> dict:
+    """Re-version the agent with the given set of (enabled) tools."""
+    s = get_settings()
+    model_id = model or s.foundry_model_deployment
+    definition = PromptAgentDefinition(
+        model=model_id,
+        instructions=instructions,
+        tools=tools or [],
+    )
+    agent = project_client().agents.create_version(agent_name=name, definition=definition)
+    return {"name": agent.name}
+
 
 
 # --------------------------------------------------------------------------- #

@@ -252,6 +252,8 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'KEYVAULT_URI',     value: keyvault.outputs.uri }
       { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundry.outputs.projectEndpoint }
       { name: 'FOUNDRY_MODEL_DEPLOYMENT', value: foundryModelName }
+      { name: 'FOUNDRY_PORTAL_URL', value: foundry.outputs.portalUrl }
+      { name: 'FOUNDRY_TENANT_ID', value: foundry.outputs.tenantId }
       { name: 'AZURE_CLIENT_ID',  value: managedIdentity.properties.clientId }
       { name: 'ALLOWED_ORIGINS',  value: '*' }
       { name: 'ALLOW_DEV_TOKENS', value: 'true' }

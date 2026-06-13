@@ -11,6 +11,7 @@ import {
   Option,
   Spinner,
   MessageBar,
+  Switch,
   Dialog,
   DialogTrigger,
   DialogSurface,
@@ -21,8 +22,14 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { Delete24Regular, Edit24Regular, Search24Regular } from "@fluentui/react-icons";
-import { api, Instance, Tenant, Template } from "../api";
+import {
+  Delete24Regular,
+  Edit24Regular,
+  Search24Regular,
+  Open16Regular,
+  Wrench20Regular,
+} from "@fluentui/react-icons";
+import { api, AgentInfo, Instance, Tenant, Template } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
 
@@ -60,6 +67,21 @@ const useStyles = makeStyles({
     ":hover": { backgroundColor: tokens.colorBrandBackground2Hover },
   },
   pager: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
+  agentPanel: {
+    marginTop: "8px",
+    paddingTop: "8px",
+    borderTop: `1px solid ${tokens.colorNeutralStroke3}`,
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  toolRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+  },
+  portalLink: { display: "inline-flex", alignItems: "center", gap: "4px" },
 });
 
 export function InstancesPage() {
@@ -94,6 +116,41 @@ export function InstancesPage() {
   // Instance removal
   const [toDelete, setToDelete] = useState<Instance | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Per-instance Foundry agent panel (portal link + tools), lazy-loaded.
+  const [agentOpen, setAgentOpen] = useState<Record<string, boolean>>({});
+  const [agentInfo, setAgentInfo] = useState<Record<string, AgentInfo>>({});
+  const [agentBusy, setAgentBusy] = useState<Record<string, boolean>>({});
+
+  async function loadAgent(instanceId: string) {
+    setAgentBusy((b) => ({ ...b, [instanceId]: true }));
+    try {
+      const info = await api.getInstanceAgent(orgId, instanceId);
+      setAgentInfo((m) => ({ ...m, [instanceId]: info }));
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setAgentBusy((b) => ({ ...b, [instanceId]: false }));
+    }
+  }
+
+  function toggleAgentPanel(instanceId: string) {
+    const open = !agentOpen[instanceId];
+    setAgentOpen((m) => ({ ...m, [instanceId]: open }));
+    if (open && !agentInfo[instanceId]) loadAgent(instanceId);
+  }
+
+  async function toggleTool(instanceId: string, key: string, enabled: boolean) {
+    setAgentBusy((b) => ({ ...b, [instanceId]: true }));
+    try {
+      await api.toggleInstanceAgentTool(orgId, instanceId, key, enabled);
+      await loadAgent(instanceId);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setAgentBusy((b) => ({ ...b, [instanceId]: false }));
+    }
+  }
 
   useEffect(() => {
     (async () => {
@@ -349,6 +406,71 @@ export function InstancesPage() {
               <Text size={200}>
                 Suggested: {i.suggested_questions.join(" · ")}
               </Text>
+            )}
+            {i.foundry_agent_id && (
+              <div className={styles.row}>
+                <Button
+                  size="small"
+                  appearance="subtle"
+                  icon={<Wrench20Regular />}
+                  onClick={() => toggleAgentPanel(i.id)}
+                >
+                  {agentOpen[i.id] ? "Hide agent" : "Agent & tools"}
+                </Button>
+              </div>
+            )}
+            {agentOpen[i.id] && (
+              <div className={styles.agentPanel}>
+                {agentBusy[i.id] && !agentInfo[i.id] ? (
+                  <Spinner size="tiny" label="Loading agent…" />
+                ) : agentInfo[i.id] ? (
+                  <>
+                    {agentInfo[i.id].portal_url ? (
+                      <a
+                        className={styles.portalLink}
+                        href={agentInfo[i.id].portal_url || "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Open16Regular /> Open agent in Azure AI Foundry portal
+                      </a>
+                    ) : (
+                      <Text size={200} italic>
+                        Foundry portal link not configured.
+                      </Text>
+                    )}
+                    <Text size={100} style={{ color: tokens.colorNeutralForeground3 }}>
+                      Agent: <code>{agentInfo[i.id].name}</code>
+                    </Text>
+                    <Text size={200}>
+                      Tools{agentInfo[i.id].version ? ` · agent v${agentInfo[i.id].version}` : ""}:
+                    </Text>
+                    {agentInfo[i.id].tools.length === 0 ? (
+                      <Text size={200} italic>
+                        No tools configured on this agent.
+                      </Text>
+                    ) : (
+                      agentInfo[i.id].tools.map((t) => {
+                        const key = String((t as any).key ?? t.type ?? "");
+                        const label = t.name || t.type || "tool";
+                        return (
+                          <div key={key} className={styles.toolRow}>
+                            <Text size={200}>
+                              {label}
+                              {t.type && t.name ? <> <code>{t.type}</code></> : null}
+                            </Text>
+                            <Switch
+                              checked={t.enabled}
+                              disabled={agentBusy[i.id]}
+                              onChange={(_, d) => toggleTool(i.id, key, d.checked)}
+                            />
+                          </div>
+                        );
+                      })
+                    )}
+                  </>
+                ) : null}
+              </div>
             )}
           </Card>
         ))}

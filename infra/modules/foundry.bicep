@@ -73,3 +73,7 @@ output accountName string = account.name
 output projectName string = project.name
 // Foundry data-plane endpoint, e.g. https://<account>.services.ai.azure.com/api/projects/<project>
 output projectEndpoint string = 'https://${account.name}.services.ai.azure.com/api/projects/${project.name}'
+// Azure AI Foundry portal deep link base for this project (wsid only; the tenant
+// id is passed separately to avoid '&' in env vars).
+output portalUrl string = 'https://ai.azure.com/build/agents?wsid=${project.id}'
+output tenantId string = tenant().tenantId

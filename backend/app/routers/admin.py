@@ -111,6 +111,15 @@ def upsert_instance(org_id: str, payload: Dict[str, Any], _: Principal = Depends
     payload.setdefault("id", str(uuid.uuid4()))
     instance = Instance(**payload)
 
+    # Previous app-side inputs (if editing an existing instance), used to decide
+    # whether the agent actually needs re-versioning.
+    existing = cosmos.get_instance(org_id, instance.id)
+    prev_addendum = ((existing or {}).get("overrides") or {}).get("instructions_addendum") if existing else None
+    prev_model = (existing or {}).get("model") if existing else None
+    # Carry over any portal-disabled tools parked on the record.
+    if existing and not instance.disabled_tools:
+        instance.disabled_tools = existing.get("disabled_tools") or []
+
     # Resolve the model: must be one the template enabled (if it restricts).
     allowed = template.get("allowed_models") or []
     chosen_model = instance.model or template.get("model")
@@ -124,16 +133,20 @@ def upsert_instance(org_id: str, payload: Dict[str, Any], _: Principal = Depends
             )
     instance.model = chosen_model
 
-    # Materialise (or re-version) the per-customer Foundry agent. The agent name
-    # is deterministic, so this updates it in place — applying any model or
-    # guidance change on edit without ever creating a duplicate.
+    # Create or update the per-customer Foundry agent. This is a no-op when only
+    # app-level metadata changed (display name, suggested questions) and it
+    # preserves tools/knowledge added from the Foundry portal; it only
+    # re-versions when the model or the addendum actually change in AgentLoom.
     addendum = (instance.overrides or {}).get("instructions_addendum")
-    instance.foundry_agent_id = foundry.create_instance_agent(
+    instance.foundry_agent_id = foundry.reconcile_instance_agent(
         template_id=template["id"],
         org_id=org_id,
         base_instructions=template.get("instructions", ""),
         addendum=addendum,
         model=chosen_model,
+        prev_addendum=prev_addendum,
+        prev_model=prev_model,
+        agent_exists=bool(existing and existing.get("foundry_agent_id")),
     )
     return cosmos.save_instance(instance.model_dump())
 
@@ -152,6 +165,86 @@ def delete_instance(org_id: str, instance_id: str, _: Principal = Depends(requir
     # 3) finally drop the instance record
     cosmos.delete("instances", org_id, instance_id)
     return {"status": "deleted", "removed_docs": removed_docs, "removed_blobs": removed_blobs}
+
+
+# --------------------------------------------------------------------------- #
+# Agent inspection: portal link + tool enable/disable                         #
+# --------------------------------------------------------------------------- #
+@router.get("/customers/{org_id}/instances/{instance_id}/agent")
+def get_instance_agent(org_id: str, instance_id: str, _: Principal = Depends(require_admin)) -> Dict[str, Any]:
+    inst = cosmos.get_instance(org_id, instance_id)
+    if not inst:
+        raise HTTPException(404, "instance not found for this org")
+    agent_name = inst.get("foundry_agent_id")
+    if not agent_name:
+        raise HTTPException(409, "instance is not bound to a Foundry agent")
+
+    details = foundry.get_agent_details(agent_name)
+    # Tools currently on the agent are "enabled"; any stored on the instance
+    # were disabled by the admin and removed from the live agent.
+    disabled = inst.get("disabled_tools") or []
+    enabled_tools = [{**t, "key": foundry._tool_key(t), "enabled": True} for t in details.get("tools", [])]
+    disabled_tools = [{**t, "key": foundry._tool_key(t), "enabled": False} for t in disabled]
+    return {
+        "name": agent_name,
+        "version": details.get("version"),
+        "model": details.get("model") or inst.get("model"),
+        "portal_url": foundry.portal_url_for_agent(agent_name),
+        "tools": enabled_tools + disabled_tools,
+    }
+
+
+@router.post("/customers/{org_id}/instances/{instance_id}/agent/tools")
+def toggle_instance_agent_tool(
+    org_id: str,
+    instance_id: str,
+    payload: Dict[str, Any],
+    _: Principal = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Enable or disable a single tool on the customer's agent. Disabled tools
+    are removed from the live Foundry agent and parked on the instance record so
+    they can be re-enabled later without losing their configuration."""
+    inst = cosmos.get_instance(org_id, instance_id)
+    if not inst:
+        raise HTTPException(404, "instance not found for this org")
+    agent_name = inst.get("foundry_agent_id")
+    if not agent_name:
+        raise HTTPException(409, "instance is not bound to a Foundry agent")
+
+    tool_key = payload.get("key")
+    enabled = bool(payload.get("enabled"))
+    if not tool_key:
+        raise HTTPException(400, "missing tool 'key'")
+
+    details = foundry.get_agent_details(agent_name)
+    live_tools: List[Dict[str, Any]] = list(details.get("tools", []))
+    parked: List[Dict[str, Any]] = list(inst.get("disabled_tools") or [])
+
+    if enabled:
+        # Move from parked → live.
+        keep = [t for t in parked if foundry._tool_key(t) != tool_key]
+        moved = [t for t in parked if foundry._tool_key(t) == tool_key]
+        if not moved:
+            raise HTTPException(404, "tool not found among disabled tools")
+        parked = keep
+        live_tools = live_tools + moved
+    else:
+        # Move from live → parked.
+        moved = [t for t in live_tools if foundry._tool_key(t) == tool_key]
+        if not moved:
+            raise HTTPException(404, "tool not found among enabled tools")
+        live_tools = [t for t in live_tools if foundry._tool_key(t) != tool_key]
+        parked = parked + moved
+
+    foundry.set_agent_tools(
+        agent_name,
+        model=details.get("model") or inst.get("model"),
+        instructions=details.get("instructions", ""),
+        tools=live_tools,
+    )
+    inst["disabled_tools"] = parked
+    cosmos.save_instance(inst)
+    return {"status": "ok", "enabled": enabled, "key": tool_key}
 
 
 # --------------------------------------------------------------------------- #

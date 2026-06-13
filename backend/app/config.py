@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # Foundry
     foundry_project_endpoint: str = ""
     foundry_model_deployment: str = "gpt-4o-mini"
+    # Azure AI Foundry portal deep link for the project (agents-list URL, wsid only).
+    foundry_portal_url: str = ""
+    # Tenant id appended to portal deep links (kept separate to avoid '&' in env vars).
+    foundry_tenant_id: str = ""
 
     # Auth (fallback). In prod, switch to External ID JWKS.
     jwt_secret: str = "local-dev-secret-change-me"

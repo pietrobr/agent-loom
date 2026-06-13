@@ -121,6 +121,20 @@ export interface Metering {
   total_tokens: number;
   by_instance: Record<string, { calls: number; tokens: number }>;
 }
+export interface AgentTool {
+  type?: string;
+  name?: string;
+  enabled: boolean;
+  // tools carry a stable identity key derived server-side
+  [k: string]: unknown;
+}
+export interface AgentInfo {
+  name: string;
+  version?: string | null;
+  model?: string | null;
+  portal_url?: string | null;
+  tools: AgentTool[];
+}
 
 // ---- Endpoints -------------------------------------------------------------
 export const api = {
@@ -146,6 +160,14 @@ export const api = {
     }),
   deleteInstance: (orgId: string, instanceId: string) =>
     req<void>(`/v1/admin/customers/${orgId}/instances/${instanceId}`, { method: "DELETE" }),
+
+  getInstanceAgent: (orgId: string, instanceId: string) =>
+    req<AgentInfo>(`/v1/admin/customers/${orgId}/instances/${instanceId}/agent`),
+  toggleInstanceAgentTool: (orgId: string, instanceId: string, key: string, enabled: boolean) =>
+    req<{ status: string }>(
+      `/v1/admin/customers/${orgId}/instances/${instanceId}/agent/tools`,
+      { method: "POST", body: JSON.stringify({ key, enabled }) }
+    ),
 
   metering: (orgId: string) =>
     req<Metering>(`/v1/admin/customers/${orgId}/metering`),

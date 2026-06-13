@@ -77,6 +77,8 @@ class Instance(BaseModel):
     branding: Optional[Branding] = None
     # Chosen Foundry model deployment (must be one of the template's allowed_models).
     model: Optional[str] = None
+    # Tool definitions disabled by the admin (parked off the live agent).
+    disabled_tools: List[Dict[str, Any]] = Field(default_factory=list)
     # Starter prompts shown as clickable chips in the customer chat.
     suggested_questions: List[str] = Field(default_factory=list)
     foundry_agent_id: Optional[str] = None  # real per-customer Foundry agent
