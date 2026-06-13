@@ -72,6 +72,8 @@ class Instance(BaseModel):
     display_name: str
     overrides: Dict[str, Any] = Field(default_factory=dict)
     branding: Optional[Branding] = None
+    # Starter prompts shown as clickable chips in the customer chat.
+    suggested_questions: List[str] = Field(default_factory=list)
     foundry_agent_id: Optional[str] = None  # real per-customer Foundry agent
     created_at: str = Field(default_factory=_now)
 

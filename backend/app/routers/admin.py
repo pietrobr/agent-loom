@@ -103,16 +103,22 @@ def upsert_instance(org_id: str, payload: Dict[str, Any], _: Principal = Depends
     payload.setdefault("id", str(uuid.uuid4()))
     instance = Instance(**payload)
 
-    # Materialise the real per-customer Foundry agent now (template base
-    # instructions + this customer's guidance), then bind it to the instance.
-    addendum = (instance.overrides or {}).get("instructions_addendum")
-    instance.foundry_agent_id = foundry.create_instance_agent(
-        template_id=template["id"],
-        org_id=org_id,
-        base_instructions=template.get("instructions", ""),
-        addendum=addendum,
-        model=template.get("model"),
-    )
+    # If this instance already exists, reuse its Foundry agent instead of
+    # creating a duplicate. This makes edits (e.g. suggested questions) safe.
+    existing = cosmos.get_instance(org_id, instance.id)
+    if existing and existing.get("foundry_agent_id"):
+        instance.foundry_agent_id = existing["foundry_agent_id"]
+    else:
+        # Materialise the real per-customer Foundry agent now (template base
+        # instructions + this customer's guidance), then bind it to the instance.
+        addendum = (instance.overrides or {}).get("instructions_addendum")
+        instance.foundry_agent_id = foundry.create_instance_agent(
+            template_id=template["id"],
+            org_id=org_id,
+            base_instructions=template.get("instructions", ""),
+            addendum=addendum,
+            model=template.get("model"),
+        )
     return cosmos.save_instance(instance.model_dump())
 
 

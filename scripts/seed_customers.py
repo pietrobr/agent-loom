@@ -40,6 +40,11 @@ CUSTOMERS = [
             "Booking changes are free up to 14 days before departure. "
             "Always offer to escalate complex refund cases to a human agent."
         ),
+        "suggested_questions": [
+            "How do I change my booking?",
+            "What is your refund policy?",
+            "How do I add baggage to my reservation?",
+        ],
         "knowledge": [
             {
                 "title": "How do I change my booking?",
@@ -89,6 +94,11 @@ CUSTOMERS = [
             "managed IT services to small and medium businesses. Quote SLAs and "
             "contract terms VERBATIM from the knowledge base."
         ),
+        "suggested_questions": [
+            "What is the standard support SLA?",
+            "What does the premium support tier include?",
+            "What is included in a support contract?",
+        ],
         "knowledge": [
             {
                 "title": "Standard Support SLA",
@@ -169,6 +179,7 @@ def main() -> None:
             "template_id": template["id"],
             "display_name": c["instance_display"],
             "overrides": {"instructions_addendum": addendum},
+            "suggested_questions": c.get("suggested_questions", []),
             "branding": c["branding"],
             "foundry_agent_id": agent_id,
         }

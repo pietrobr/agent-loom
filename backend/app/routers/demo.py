@@ -37,7 +37,11 @@ def list_demo_customers() -> List[Dict[str, Any]]:
             continue  # customer disabled by the partner admin
         instances = cosmos.list_instances(org_id)
         usable = [
-            {"id": i["id"], "display_name": i.get("display_name", i["id"])}
+            {
+                "id": i["id"],
+                "display_name": i.get("display_name", i["id"]),
+                "suggested_questions": i.get("suggested_questions") or [],
+            }
             for i in instances
             if i.get("foundry_agent_id")
         ]

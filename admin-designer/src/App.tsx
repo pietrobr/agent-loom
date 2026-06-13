@@ -9,6 +9,7 @@ import {
   Badge,
 } from "@fluentui/react-components";
 import { useBranding } from "./branding";
+import { brandGradient } from "./theme";
 import { getToken, clearToken, devAdminLogin } from "./api";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
@@ -60,8 +61,8 @@ export function App() {
       <div className={styles.demoBanner}>
         ⚠️ DEMO MODE — admin sign-in is simulated (dev tokens). In production this uses Microsoft Entra ID.
       </div>
-      <header className={styles.header} style={{ backgroundColor: branding.PRIMARY_COLOR }}>
-        <img src={branding.LOGO_URL} className={styles.logo} alt="logo" style={{ color: "#fff" }} />
+      <header className={styles.header} style={{ background: brandGradient(branding.PRIMARY_COLOR) }}>
+        <img src={branding.LOGO_URL} className={styles.logo} alt="logo" />
         <Text weight="bold" size={500}>
           {branding.PRODUCT_NAME} · SaaS Admin Console
         </Text>

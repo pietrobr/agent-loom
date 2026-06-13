@@ -13,6 +13,7 @@ import {
   MessageBar,
 } from "@fluentui/react-components";
 import { Send24Filled } from "@fluentui/react-icons";
+import { brandGradient } from "./theme";
 import {
   BrandingResponse,
   DemoCustomer,
@@ -73,6 +74,30 @@ const useStyles = makeStyles({
   },
   composer: { display: "flex", gap: "8px", padding: "12px 20px", alignItems: "flex-end" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
+  starter: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "12px",
+    marginTop: "40px",
+  },
+  chips: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    justifyContent: "center",
+    maxWidth: "560px",
+  },
+  chip: {
+    padding: "8px 14px",
+    borderRadius: "999px",
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: tokens.colorNeutralBackground1,
+    cursor: "pointer",
+    fontSize: "13px",
+    boxShadow: tokens.shadow2,
+    ":hover": { backgroundColor: tokens.colorNeutralBackground1Hover },
+  },
 });
 
 interface Msg {
@@ -126,8 +151,8 @@ export function App() {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  async function send() {
-    const text = input.trim();
+  async function send(textOverride?: string) {
+    const text = (textOverride ?? input).trim();
     if (!text || busy || !instanceId) return;
     setInput("");
     setErr("");
@@ -156,13 +181,15 @@ export function App() {
   }
 
   const color = branding?.primary_color || "#5B5FC7";
+  const suggestions =
+    customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
 
   return (
     <div className={styles.app}>
       <div className={styles.demoBanner}>
         ⚠️ DEMO MODE — sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID.
       </div>
-      <header className={styles.header} style={{ backgroundColor: color }}>
+      <header className={styles.header} style={{ background: brandGradient(color) }}>
         <img src={branding?.logo_url || "/logo.svg"} className={styles.logo} alt="logo" />
         <div>
           <Text weight="bold" size={500}>
@@ -218,11 +245,25 @@ export function App() {
 
       <div className={styles.chat} ref={chatRef}>
         {messages.length === 0 && (
-          <Text align="center" size={300} style={{ marginTop: 40, color: tokens.colorNeutralForeground3 }}>
-            Ask {branding?.org_name || customer?.name}'s assistant a question.
-            <br />
-            Try: "What is your refund policy?" or "What's included in a support contract?"
-          </Text>
+          <div className={styles.starter}>
+            <Text align="center" size={300} style={{ color: tokens.colorNeutralForeground3 }}>
+              Ask {branding?.org_name || customer?.name}'s assistant a question.
+            </Text>
+            {suggestions.length > 0 && (
+              <div className={styles.chips}>
+                {suggestions.map((q, i) => (
+                  <div
+                    key={i}
+                    className={styles.chip}
+                    style={{ borderColor: color, color }}
+                    onClick={() => !busy && send(q)}
+                  >
+                    {q}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
         {messages.map((m, i) =>
           m.role === "user" ? (
@@ -262,7 +303,7 @@ export function App() {
           appearance="primary"
           icon={<Send24Filled />}
           disabled={busy || !input.trim()}
-          onClick={send}
+          onClick={() => send()}
           style={{ backgroundColor: color }}
         >
           Send

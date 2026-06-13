@@ -29,6 +29,16 @@ const useStyles = makeStyles({
   form: { display: "flex", flexDirection: "column", gap: "10px" },
   card: { padding: "12px" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
+  colorRow: { display: "flex", gap: "10px", alignItems: "center" },
+  swatch: {
+    width: "40px",
+    height: "32px",
+    padding: 0,
+    border: "none",
+    borderRadius: "6px",
+    cursor: "pointer",
+    backgroundColor: "transparent",
+  },
 });
 
 const EMPTY = {
@@ -232,12 +242,24 @@ export function CustomersPage() {
             }
           />
           <Label>Brand: primary color</Label>
-          <Input
-            value={draft.branding.primary_color}
-            onChange={(_, d) =>
-              setDraft({ ...draft, branding: { ...draft.branding, primary_color: d.value } })
-            }
-          />
+          <div className={styles.colorRow}>
+            <input
+              type="color"
+              className={styles.swatch}
+              aria-label="Pick primary color"
+              value={/^#[0-9a-fA-F]{6}$/.test(draft.branding.primary_color) ? draft.branding.primary_color : "#5B5FC7"}
+              onChange={(e) =>
+                setDraft({ ...draft, branding: { ...draft.branding, primary_color: e.target.value } })
+              }
+            />
+            <Input
+              style={{ flexGrow: 1 }}
+              value={draft.branding.primary_color}
+              onChange={(_, d) =>
+                setDraft({ ...draft, branding: { ...draft.branding, primary_color: d.value } })
+              }
+            />
+          </div>
           <Label>Brand: tagline</Label>
           <Input
             value={draft.branding.tagline}

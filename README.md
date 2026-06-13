@@ -69,6 +69,13 @@ knowledge from `kb-{org_id}` → runs the template's Foundry agent with the
 customer's config injected → streams tokens back via **SSE** → records usage in
 the customer's metering partition.
 
+**Frontend serving:** both SPAs are built statically (Vite) and served by
+**nginx** (`nginx:1.27-alpine`) on port 80 in their own Container App. The API
+base URL is injected **at container start** into `env-config.js` (no rebuild per
+environment), and nginx sets cache-control headers — hashed `/assets/` are
+`immutable`, while `index.html` and `env-config.js` are `no-cache` so new
+deploys are picked up immediately.
+
 ---
 
 ## Repository layout
@@ -82,10 +89,10 @@ AgentLoom/
 ├─ backend/                   # FastAPI front door
 │  └─ app/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py
-│     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py
+│     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py
 │     └─ services/ cosmos.py search.py blob.py foundry.py
-├─ admin-designer/            # React + Vite + Fluent UI (partner admin)
-├─ customer-webapp/           # React + Vite + Fluent UI (customer chat)
+├─ admin-designer/            # React + Vite + Fluent UI (partner admin) — served by nginx
+├─ customer-webapp/           # React + Vite + Fluent UI (customer chat) — served by nginx
 ├─ scripts/
 │  ├─ create_foundry_agents.py  # creates the TEMPLATE agents in Foundry
 │  ├─ seed_customers.py         # 2 demo customers + instances + indexes + knowledge
@@ -237,6 +244,10 @@ The customer-webapp's demo switcher calls `/v1/auth/dev-token` automatically
 | -------------------------- | -------------------------- | ---------------------------------- |
 | Horizon Travel (`horizon-travel`) | Customer Care Assistant | Bookings, refunds, baggage FAQs |
 | NovaTech Solutions (`novatech`)   | Knowledge / FAQ Assistant | Support contracts, SLAs FAQs   |
+
+Each demo instance also ships **suggested questions** that appear as clickable
+chips on the customer-webapp welcome screen (configurable per instance in the
+Designer's *Assign template* form).
 
 Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 *"What's included in a support contract?"* (NovaTech).

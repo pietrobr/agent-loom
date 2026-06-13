@@ -111,6 +111,7 @@ export interface Instance {
   display_name: string;
   overrides: Record<string, unknown>;
   branding?: Branding;
+  suggested_questions?: string[];
   foundry_agent_id?: string;
 }
 export interface Metering {

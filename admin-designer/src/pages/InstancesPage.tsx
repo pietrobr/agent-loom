@@ -71,6 +71,8 @@ export function InstancesPage() {
   const [templateId, setTemplateId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [addendum, setAddendum] = useState("");
+  const [suggested, setSuggested] = useState("");
+  const [assigning, setAssigning] = useState(false);
 
   // Customer picker (searchable + paginated)
   const [customerSearch, setCustomerSearch] = useState("");
@@ -121,19 +123,29 @@ export function InstancesPage() {
   }, [orgId]);
 
   async function assign() {
+    if (assigning) return;
     setErr("");
+    setAssigning(true);
     try {
+      const questions = suggested
+        .split("\n")
+        .map((q) => q.trim())
+        .filter(Boolean);
       await api.saveInstance(orgId, {
         template_id: templateId,
         display_name: displayName,
         overrides: addendum ? { instructions_addendum: addendum } : {},
+        suggested_questions: questions,
       });
       setTemplateId("");
       setDisplayName("");
       setAddendum("");
+      setSuggested("");
       await loadInstances(orgId);
     } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -292,6 +304,11 @@ export function InstancesPage() {
                 {String(i.overrides.instructions_addendum)}
               </Text>
             )}
+            {!!i.suggested_questions?.length && (
+              <Text size={200}>
+                Suggested: {i.suggested_questions.join(" · ")}
+              </Text>
+            )}
           </Card>
         ))}
       </div>
@@ -326,8 +343,19 @@ export function InstancesPage() {
               value={addendum}
               onChange={(_, d) => setAddendum(d.value)}
             />
-            <Button appearance="primary" onClick={assign} disabled={!orgId || !templateId || !displayName}>
-              Assign
+            <Label>Suggested questions (one per line — shown as chips in the customer chat)</Label>
+            <Textarea
+              resize="vertical"
+              placeholder={"What is your refund policy?\nHow do I change my booking?"}
+              value={suggested}
+              onChange={(_, d) => setSuggested(d.value)}
+            />
+            <Button
+              appearance="primary"
+              onClick={assign}
+              disabled={!orgId || !templateId || !displayName || assigning}
+            >
+              {assigning ? <Spinner size="tiny" /> : "Assign"}
             </Button>
           </div>
         </Card>

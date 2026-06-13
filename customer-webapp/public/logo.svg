@@ -1,7 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40" fill="none">
-  <rect width="40" height="40" rx="9" fill="currentColor"/>
-  <path d="M11 12h18M11 20h18M11 28h18" stroke="white" stroke-width="2.4" stroke-linecap="round"/>
-  <circle cx="14" cy="12" r="2.6" fill="white"/>
-  <circle cx="26" cy="20" r="2.6" fill="white"/>
-  <circle cx="17" cy="28" r="2.6" fill="white"/>
+  <defs>
+    <linearGradient id="aglBg" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8A8EF0"/>
+      <stop offset="0.5" stop-color="#5B5FC7"/>
+      <stop offset="1" stop-color="#372A8A"/>
+    </linearGradient>
+  </defs>
+  <rect width="40" height="40" rx="10" fill="url(#aglBg)"/>
+  <!-- warp: vertical threads -->
+  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" opacity="0.92">
+    <path d="M12 10v20"/>
+    <path d="M20 10v20"/>
+    <path d="M28 10v20"/>
+  </g>
+  <!-- weft: woven waves -->
+  <g stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" fill="none" opacity="0.85">
+    <path d="M8.5 15c3.8 0 3.8 3 7.5 3s3.7-3 7.5-3 3.7 3 7.5 3"/>
+    <path d="M8.5 25c3.8 0 3.8-3 7.5-3s3.7 3 7.5 3 3.7-3 7.5-3"/>
+  </g>
+  <circle cx="12" cy="20" r="2.3" fill="#ffffff"/>
+  <circle cx="28" cy="20" r="2.3" fill="#ffffff"/>
 </svg>

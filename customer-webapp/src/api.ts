@@ -33,6 +33,7 @@ export interface CatalogItem {
 export interface DemoInstance {
   id: string;
   display_name: string;
+  suggested_questions?: string[];
 }
 export interface DemoCustomer {
   org_id: string;
