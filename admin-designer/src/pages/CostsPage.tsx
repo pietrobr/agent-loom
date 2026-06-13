@@ -42,6 +42,15 @@ const useStyles = makeStyles({
   monthCard: { padding: "16px", display: "flex", flexDirection: "column", gap: "8px" },
   monthHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
   meta: { display: "flex", gap: "12px", flexWrap: "wrap", alignItems: "center" },
+  nameCell: { minWidth: "220px", whiteSpace: "nowrap" },
+  projGap: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    padding: "10px 12px",
+    borderRadius: tokens.borderRadiusMedium,
+  },
 });
 
 function money(n: number, currency: string): string {
@@ -121,6 +130,35 @@ export function CostsPage() {
   );
   // Chart shows oldest → newest (by_month arrives newest-first).
   const chartMonths = useMemo(() => [...(data?.by_month || [])].reverse(), [data]);
+
+  // End-of-month projection for the current (most recent) month. Open customers
+  // are linearly extrapolated from their current per-active-day rate to the full
+  // month; closed/suspended ones are frozen at their current cost.
+  const projection = useMemo(() => {
+    const cur = data?.by_month?.[0];
+    if (!cur) return null;
+    const daysInMonth = cur.days_in_month || 30;
+    const rows = cur.clients.map((c) => {
+      const st = statusOf(c.org_id).label;
+      const open = st === "Open";
+      const activeDays = Math.max(1, c.active_days || 1);
+      const factor = open ? daysInMonth / activeDays : 1;
+      return {
+        org_id: c.org_id,
+        name: c.name,
+        open,
+        current_total: c.total_cost,
+        current_infra: c.infra_cost,
+        projected_total: c.total_cost * factor,
+        projected_infra: c.infra_cost * factor,
+      };
+    });
+    const projectedInfraRecovered = rows.reduce((s, r) => s + r.projected_infra, 0);
+    const projectedTotal = rows.reduce((s, r) => s + r.projected_total, 0);
+    const infraMonthly = data?.infra_monthly || 0;
+    const gap = Math.max(0, infraMonthly - projectedInfraRecovered);
+    return { month: cur.month, daysInMonth, rows, projectedInfraRecovered, projectedTotal, infraMonthly, gap };
+  }, [data, statusByOrg]);
 
   return (
     <div className={styles.wrap}>
@@ -230,6 +268,75 @@ export function CostsPage() {
             )}
           </Card>
 
+          {projection && (
+            <Card className={styles.monthCard}>
+              <div className={styles.monthHead}>
+                <Text weight="semibold">End-of-month projection · {projection.month}</Text>
+                <Text weight="semibold">{money(projection.projectedTotal, currency)}</Text>
+              </div>
+              <Text size={200} italic>
+                Open customers are extrapolated from their current daily rate to all{" "}
+                {projection.daysInMonth} days; suspended/closed ones are frozen at today's cost.
+              </Text>
+              <Table size="small">
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell className={styles.nameCell}>Customer</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell>Current total</TableHeaderCell>
+                    <TableHeaderCell>Projected EOM</TableHeaderCell>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {projection.rows.map((r) => (
+                    <TableRow key={r.org_id}>
+                      <TableCell className={styles.nameCell}>{r.name}</TableCell>
+                      <TableCell>
+                        <Badge appearance="filled" color={statusOf(r.org_id).color}>
+                          {statusOf(r.org_id).label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>{money(r.current_total, currency)}</TableCell>
+                      <TableCell>
+                        <Text weight="semibold">{money(r.projected_total, currency)}</Text>
+                        {r.open && r.projected_total > r.current_total && (
+                          <Text size={100} style={{ color: tokens.colorPaletteGreenForeground1 }}>
+                            {" "}(+{money(r.projected_total - r.current_total, currency)})
+                          </Text>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              <div
+                className={styles.projGap}
+                style={{
+                  backgroundColor:
+                    projection.gap > 0
+                      ? tokens.colorPaletteRedBackground2
+                      : tokens.colorPaletteGreenBackground2,
+                }}
+              >
+                <div>
+                  <Text weight="semibold">
+                    {projection.gap > 0 ? "Architecture not yet covered" : "Architecture fully covered"}
+                  </Text>
+                  <div>
+                    <Text size={200}>
+                      Projected infra recovered {money(projection.projectedInfraRecovered, currency)} of{" "}
+                      {money(projection.infraMonthly, currency)} monthly
+                    </Text>
+                  </div>
+                </div>
+                <Text size={500} weight="bold">
+                  {projection.gap > 0 ? `-${money(projection.gap, currency)}` : money(0, currency)}
+                </Text>
+              </div>
+            </Card>
+          )}
+
           {data.by_month.map((m) => (
             <Card key={m.month} className={styles.monthCard}>
               <div className={styles.monthHead}>
@@ -246,7 +353,7 @@ export function CostsPage() {
               <Table size="small">
                 <TableHeader>
                   <TableRow>
-                    <TableHeaderCell>Customer</TableHeaderCell>
+                    <TableHeaderCell className={styles.nameCell}>Customer</TableHeaderCell>
                     <TableHeaderCell>Tokens</TableHeaderCell>
                     <TableHeaderCell>Calls</TableHeaderCell>
                     <TableHeaderCell>Documents</TableHeaderCell>
@@ -260,7 +367,7 @@ export function CostsPage() {
                 <TableBody>
                   {m.clients.map((c) => (
                     <TableRow key={c.org_id}>
-                      <TableCell>
+                      <TableCell className={styles.nameCell}>
                         <div>
                           <Text>{c.name}</Text>
                           <div>
