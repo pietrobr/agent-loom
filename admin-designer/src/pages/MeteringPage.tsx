@@ -49,6 +49,29 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorBrandBackground2,
     ":hover": { backgroundColor: tokens.colorBrandBackground2Hover },
   },
+  allItem: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "8px",
+    padding: "12px",
+    cursor: "pointer",
+    color: "#fff",
+    fontWeight: 600,
+    background: "linear-gradient(135deg, #00A8A8 0%, #138DDE 60%, #4F6BFF 100%)",
+    borderBottom: `2px solid ${tokens.colorNeutralStroke1}`,
+    ":hover": { filter: "brightness(1.05)" },
+  },
+  allItemActive: {
+    outline: `2px solid ${tokens.colorNeutralForeground1}`,
+    outlineOffset: "-2px",
+  },
+  allPill: {
+    fontSize: "11px",
+    padding: "2px 8px",
+    borderRadius: "999px",
+    backgroundColor: "rgba(255,255,255,0.25)",
+  },
   pager: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" },
   chartCard: { padding: "16px", display: "flex", flexDirection: "column", gap: "12px" },
   chartHead: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" },
@@ -211,16 +234,14 @@ export function MeteringPage() {
       <div className={styles.customerList}>
         <div
           className={
-            orgId === ALL_ORG
-              ? `${styles.customerItem} ${styles.customerItemActive}`
-              : styles.customerItem
+            orgId === ALL_ORG ? `${styles.allItem} ${styles.allItemActive}` : styles.allItem
           }
           onClick={() => setOrgId(ALL_ORG)}
         >
-          <div>
-            <Text weight={orgId === ALL_ORG ? "semibold" : "regular"}>All customers</Text>
-          </div>
-          <Text size={100}>total</Text>
+          <Text weight="semibold" style={{ color: "#fff" }}>
+            Σ All customers
+          </Text>
+          <span className={styles.allPill}>total</span>
         </div>
         {pagedCustomers.map((c) => (
           <div
