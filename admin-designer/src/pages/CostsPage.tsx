@@ -14,7 +14,7 @@ import {
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
-import { api, CostSummary } from "../api";
+import { api, CostSummary, Tenant } from "../api";
 
 const useStyles = makeStyles({
   wrap: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "960px" },
@@ -83,6 +83,7 @@ const INFRA_LABELS: Record<string, string> = {
 export function CostsPage() {
   const styles = useStyles();
   const [data, setData] = useState<CostSummary | null>(null);
+  const [customers, setCustomers] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -93,7 +94,25 @@ export function CostsPage() {
       .then(setData)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
+    api.listCustomers().then(setCustomers).catch(() => {});
   }, []);
+
+  // Lifecycle status per org for the badge under each client name. A client that
+  // is no longer a tenant (deleted) is shown as Closed.
+  const statusByOrg = useMemo(() => {
+    const m: Record<string, { label: string; color: "success" | "warning" | "danger" }> = {};
+    for (const t of customers) {
+      m[t.org_id] =
+        (t as any).status === "closed"
+          ? { label: "Closed", color: "danger" }
+          : t.enabled === false
+          ? { label: "Suspended", color: "warning" }
+          : { label: "Open", color: "success" };
+    }
+    return m;
+  }, [customers]);
+  const statusOf = (orgId: string) =>
+    statusByOrg[orgId] || { label: "Closed", color: "danger" as const };
 
   const currency = data?.currency || "USD";
   const maxMonth = useMemo(
@@ -245,9 +264,9 @@ export function CostsPage() {
                         <div>
                           <Text>{c.name}</Text>
                           <div>
-                            <Text size={100} font="monospace">
-                              {c.org_id}
-                            </Text>
+                            <Badge appearance="filled" color={statusOf(c.org_id).color}>
+                              {statusOf(c.org_id).label}
+                            </Badge>
                           </div>
                         </div>
                       </TableCell>

@@ -72,6 +72,15 @@ const TIER_QUOTAS: Record<string, number> = {
   pro: 5_000_000,
 };
 
+type CustomerStatus = { label: string; color: "success" | "warning" | "danger" };
+
+/** Lifecycle status badge for a customer. */
+function statusOf(t: Tenant & { status?: string }): CustomerStatus {
+  if (t.status === "closed") return { label: "Closed", color: "danger" };
+  if (t.enabled === false) return { label: "Suspended", color: "warning" };
+  return { label: "Open", color: "success" };
+}
+
 export function CustomersPage() {
   const styles = useStyles();
   const [items, setItems] = useState<Tenant[]>([]);
@@ -187,11 +196,14 @@ export function CustomersPage() {
                 <div className={styles.row}>
                   <Text weight="semibold">{t.name}</Text>
                   <Badge appearance="tint">{t.tier}</Badge>
-                  {t.enabled === false && (
-                    <Badge appearance="filled" color="warning">
-                      disabled
-                    </Badge>
-                  )}
+                  {(() => {
+                    const s = statusOf(t);
+                    return (
+                      <Badge appearance="filled" color={s.color}>
+                        {s.label}
+                      </Badge>
+                    );
+                  })()}
                 </div>
               }
               description={
