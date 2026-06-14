@@ -18,6 +18,15 @@ own no infrastructure.
 - **One Foundry agent per template** (shared parametric model): per-customer
   config + knowledge are injected at runtime, and the Foundry endpoint is never
   exposed to customers.
+- **Retrieval-Augmented Generation (RAG)** per customer: each customer's
+  documents are chunked and embedded (`text-embedding-3-small`) into their own
+  `kb-{org_id}` Azure AI Search index, then retrieved with vector + semantic
+  search to ground every answer. Templates can optionally enable **agentic
+  retrieval** (Search plans multi-step queries against a knowledge base using
+  the Foundry chat model).
+- **Per-customer cost attribution** (multi-currency): the admin **Costs** tab
+  breaks the monthly Azure bill (shared platform + LLM tokens + embeddings +
+  agentic planning) down per customer, with an end-of-month projection.
 
 ---
 
@@ -66,13 +75,15 @@ Foundry and Key Vault are reached via managed identity over their service
 endpoints.
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
-`org_id` from the token, enforces isolation) → backend retrieves the customer's
-knowledge from `kb-{org_id}` → runs the template's Foundry agent with the
-customer's config injected → streams tokens back via **SSE** → records usage in
-the customer's metering partition.
+`org_id` from the token, enforces isolation) → backend embeds the question and
+retrieves the customer's most relevant knowledge chunks from `kb-{org_id}`
+(vector + semantic search, or **agentic retrieval** when the instance enables
+it) → runs the template's Foundry agent with the customer's config + retrieved
+context injected → streams tokens back via **SSE** → records usage (chat,
+embedding and agentic planning tokens) in the customer's metering partition.
 
 **Frontend serving:** both SPAs are built statically (Vite) and served by
-**nginx** (`nginx:1.27-alpine`) on port 80 in their own Container App. The API
+**nginx** (`nginx:1.29-alpine`) on port 80 in their own Container App. The API
 base URL is injected **at container start** into `env-config.js` (no rebuild per
 environment), and nginx sets cache-control headers — hashed `/assets/` are
 `immutable`, while `index.html` and `env-config.js` are `no-cache` so new
@@ -92,18 +103,22 @@ AgentLoom/
 │  └─ app/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py
 │     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py
-│     └─ services/ cosmos.py search.py blob.py foundry.py
+│     └─ services/ cosmos.py search.py blob.py foundry.py embeddings.py agentic.py pricing.py
 ├─ admin-designer/            # React + Vite + Fluent UI (partner admin) — served by nginx
 ├─ customer-webapp/           # React + Vite + Fluent UI (customer chat) — served by nginx
 ├─ scripts/
 │  ├─ create_foundry_agents.py  # seeds the agent TEMPLATES (from sample-templates/)
 │  ├─ seed_customers.py         # 2 demo customers + instances + indexes + knowledge
+│  ├─ reindex_search.py         # re-chunk & re-embed a customer's knowledge into kb-{org}
+│  ├─ fetch_azure_prices.py     # refresh config/azure_prices*.json from the Azure price API
 │  ├─ mint_demo_token.py        # local JWT for manual testing
 │  └─ setup.ps1 / setup.sh      # azd post-provision orchestration
 ├─ sample-templates/          # agent template blueprints (JSON) — single source of truth
 ├─ sample-customers/          # demo + manual customers (README + knowledge per customer)
 └─ config/
    ├─ branding.json            # partner brand (overridable by env)
+   ├─ azure_prices.json        # USD unit prices for the Costs view
+   ├─ azure_prices_eur.json    # EUR unit prices
    └─ .env.sample
 ```
 
@@ -116,7 +131,9 @@ AgentLoom/
 - Python 3.11+ and Node 20+ (only needed to run scripts / develop locally)
 - An Azure subscription where you can create AI Services (Foundry), Cosmos DB,
   AI Search, Storage, Key Vault, ACR and Container Apps.
-- Sufficient quota for the chosen Foundry model (default `gpt-4o-mini`).
+- Sufficient quota for the chosen Foundry models: the chat model (default
+  `gpt-4o-mini`) and the embedding model (default `text-embedding-3-small`,
+  used for RAG). Both are deployed automatically by the Bicep.
 
 Sign in first:
 
@@ -140,8 +157,8 @@ azd up
 
 1. Provision all infrastructure from `infra/` (a VNet with private endpoints,
    managed identity, Key Vault, private Storage, Cosmos, AI Search, ACR, Foundry
-   account+project+model, and a VNet-integrated Container Apps environment with
-   three Container Apps that scale to zero).
+   account+project + chat & embedding models, and a VNet-integrated Container
+   Apps environment with three Container Apps that scale to zero).
 2. Build and push the backend + two web app images to ACR.
 3. Run the **post-provision hook** (`scripts/setup.*`), which:
    - seeds the **agent templates** from
@@ -227,9 +244,22 @@ re-run it. Publish a template to make it visible in `GET /v1/catalog`.
 
 In **Designer → Customers**, create a customer (its `org_id`, tier/quota and
 branding). Saving auto-creates the per-customer Search index `kb-{org_id}`.
-Then assign templates and upload knowledge in **Designer → Instances**.
+Then assign templates and upload knowledge in **Designer → Instances** — uploaded
+documents are chunked and embedded into the customer's index for RAG. If the
+template allows it, toggle **agentic retrieval** per instance (this provisions a
+Search knowledge source `ks-{org}` + knowledge base `kbagent-{org}`).
 
-### 5. Wire Microsoft Entra External ID (CIAM)
+### 5. Track per-customer costs
+
+**Designer → Costs** shows the monthly Azure spend split per customer: the fixed
+shared platform plus variable AI usage (LLM chat tokens, embeddings, agentic
+planning). Switch the display currency (USD/EUR) and read the end-of-month
+projection. Prices live in `config/azure_prices.json` (and
+`config/azure_prices_<cur>.json` per currency, refreshable with
+`scripts/fetch_azure_prices.py`) and are loaded by
+`backend/app/services/pricing.py`.
+
+### 6. Wire Microsoft Entra External ID (CIAM)
 
 For the MVP, end-customer auth uses a validated **HS256 JWT** carrying an
 `org_id` claim (and optional `roles`). To move to production:
@@ -304,7 +334,9 @@ Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 - 🧱 **Least-privilege RBAC.** The managed identity gets exactly: Cosmos DB
   Built-in Data Contributor, Search Index Data Contributor + Service
   Contributor, Storage Blob Data Contributor, Key Vault Secrets User, AcrPull,
-  and Azure AI User on Foundry.
+  and Azure AI User on Foundry. The Search service's own identity gets Cognitive
+  Services User on Foundry so it can call the chat model for agentic retrieval
+  query planning.
 - 🌐 **HTTPS + CORS + security headers.** Container Apps ingress is HTTPS-only
   (`allowInsecure=false`); CORS is restricted to the web origins; responses set
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and HSTS.
@@ -318,8 +350,8 @@ Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 | - | --------- | ----- |
 | 1 | `azd up` provisions with no public blob, MI, Key Vault, least-privilege RBAC, no plaintext secrets | `infra/` |
 | 2 | Scripts create 2 Foundry templates + 2 demo customers with instances & knowledge | `scripts/` |
-| 3 | Designer: view/create templates, onboard customer, assign instances, view metering | `admin-designer/` |
-| 4 | customer-webapp streams chat with the customer's agent using ITS knowledge; cross-tenant → 403 | `customer-webapp/`, `backend/app/middleware.py` |
+| 3 | Designer: view/create templates, onboard customer, assign instances, view metering & per-customer costs | `admin-designer/` |
+| 4 | customer-webapp streams chat with the customer's agent using ITS knowledge (RAG / agentic retrieval); cross-tenant → 403 | `customer-webapp/`, `backend/app/middleware.py` |
 | 5 | This README with install + customization steps | here |
 
 ---
