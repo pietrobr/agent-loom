@@ -266,7 +266,7 @@ AgentLoom/
 ├─ sample-templates/          # agent template blueprints (JSON) — single source of truth
 ├─ sample-customers/          # demo + manual customers (README + knowledge per customer)
 └─ config/
-   ├─ branding.json            # partner brand (overridable by env)
+   ├─ branding.json            # provider brand (overridable by env)
    ├─ azure_prices.json        # USD unit prices for the Costs view
    ├─ azure_prices_eur.json    # EUR unit prices
    └─ .env.sample
@@ -368,9 +368,9 @@ customers → instances → metering → costs) and the brandable **customer cha
 
 ---
 
-## Partner customization
+## Provider customization
 
-Everything a partner needs to rebrand and re-home the accelerator is config —
+Everything a provider needs to rebrand and re-home the accelerator is config —
 **no code changes**.
 
 ### 1. Brand
@@ -435,7 +435,7 @@ For the MVP, end-customer auth uses a validated **HS256 JWT** carrying an
    middleware, isolation, routers — is unchanged because it only depends on the
    `org_id`/`roles` claims.
 
-Do **not** use B2B guest users in the partner tenant for customer identities.
+Do **not** use B2B guest users in the provider tenant for customer identities.
 
 ---
 
