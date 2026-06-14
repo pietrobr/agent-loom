@@ -41,6 +41,30 @@ def _openai_client():
     return project_client().get_openai_client()
 
 
+@lru_cache(maxsize=1)
+def _embeddings_client():
+    """Azure OpenAI client scoped to the Foundry *account* (not the project).
+
+    Embeddings live on the account data-plane route
+    (``/openai/deployments/<deployment>/embeddings``); the project-scoped client
+    only exposes the Responses/Conversations surface and 404s on embeddings.
+    """
+    from azure.identity import get_bearer_token_provider
+    from openai import AzureOpenAI
+
+    s = get_settings()
+    # Strip the '/api/projects/<name>' suffix to reach the account endpoint.
+    account = s.foundry_project_endpoint.split("/api/projects/")[0].rstrip("/")
+    token_provider = get_bearer_token_provider(
+        get_credential(), "https://cognitiveservices.azure.com/.default"
+    )
+    return AzureOpenAI(
+        azure_endpoint=account,
+        azure_ad_token_provider=token_provider,
+        api_version="2024-10-21",
+    )
+
+
 _SAFE_NAME = re.compile(r"[^a-z0-9-]+")
 
 

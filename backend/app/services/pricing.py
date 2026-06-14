@@ -28,6 +28,7 @@ _DEFAULTS: Dict[str, Any] = {
     "models": {
         "gpt-4o-mini": {"input_per_1k": 0.000150, "output_per_1k": 0.000600},
         "gpt-4o": {"input_per_1k": 0.00250, "output_per_1k": 0.01000},
+        "text-embedding-3-small": {"input_per_1k": 0.000020, "output_per_1k": 0.0},
     },
     "search": {"sku": "Standard S1", "unit_per_month": 245.28},
     "shared_infrastructure": {
@@ -52,7 +53,15 @@ def _prices() -> Dict[str, Any]:
         if p.is_file():
             try:
                 data = json.loads(p.read_text(encoding="utf-8"))
-                return {**_DEFAULTS, **data}
+                merged = {**_DEFAULTS, **data}
+                # Deep-merge the nested maps so built-in entries the dynamic file
+                # doesn't carry (e.g. the embedding model price) are preserved.
+                merged["models"] = {**_DEFAULTS["models"], **data.get("models", {})}
+                merged["shared_infrastructure"] = {
+                    **_DEFAULTS["shared_infrastructure"],
+                    **data.get("shared_infrastructure", {}),
+                }
+                return merged
             except Exception as exc:  # pragma: no cover
                 log.warning("failed to read %s: %s", p, exc)
     return _DEFAULTS
@@ -99,6 +108,16 @@ def token_cost(model: str | None, input_tokens: int, output_tokens: int) -> floa
     return (input_tokens / 1000.0) * p.get("input_per_1k", 0.0) + (
         output_tokens / 1000.0
     ) * p.get("output_per_1k", 0.0)
+
+
+_EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+def embedding_cost(tokens: int) -> float:
+    """USD cost of embedding ``tokens`` (RAG ingestion). Embeddings are billed on
+    input tokens only."""
+    p = model_price(_EMBEDDING_MODEL)
+    return (tokens / 1000.0) * p.get("input_per_1k", 0.0)
 
 
 def search_monthly_cost() -> float:

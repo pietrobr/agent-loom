@@ -60,6 +60,9 @@ class Settings(BaseSettings):
     # Foundry
     foundry_project_endpoint: str = ""
     foundry_model_deployment: str = "gpt-4o-mini"
+    # Embedding model deployment used for the RAG vector search.
+    embedding_deployment: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
     # Azure AI Foundry portal deep link for the project (agents-list URL, wsid only).
     foundry_portal_url: str = ""
     # Tenant id appended to portal deep links (kept separate to avoid '&' in env vars).

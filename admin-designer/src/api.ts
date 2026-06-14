@@ -140,6 +140,8 @@ export interface CostClient {
   days_in_month: number;
   active_fraction: number;
   token_cost: number;
+  embedding_tokens?: number;
+  embedding_cost?: number;
   search_cost: number;
   infra_cost: number;
   total_cost: number;
@@ -147,6 +149,7 @@ export interface CostClient {
 export interface CostMonth {
   month: string;
   token_cost: number;
+  embedding_cost?: number;
   search_cost: number;
   infra_cost: number;
   infra_full?: number;

@@ -175,7 +175,7 @@ def metering_summary(org_id: str) -> Dict[str, Any]:
     # use as a timestamp fallback for older events logged without an ISO `ts`.
     rows = query("metering", org_id, "SELECT * FROM c")
     # Exclude non-event docs (e.g. the lifecycle record stored in this container).
-    rows = [r for r in rows if r.get("kind") != _LIFECYCLE_ID and r.get("id") != _LIFECYCLE_ID]
+    rows = [r for r in rows if r.get("kind") not in (_LIFECYCLE_ID, "embedding") and r.get("id") != _LIFECYCLE_ID]
     calls = len(rows)
     total = sum(r.get("total_tokens", 0) for r in rows)
     by_instance: Dict[str, Dict[str, int]] = {}
@@ -285,7 +285,8 @@ def cost_summary() -> Dict[str, Any]:
 
     # Cross-partition reads (admin only).
     raw = list(_container("metering").read_all_items())
-    events = [r for r in raw if r.get("kind") != _LIFECYCLE_ID and r.get("id") != _LIFECYCLE_ID]
+    events = [r for r in raw if r.get("kind") not in (_LIFECYCLE_ID, "embedding") and r.get("id") != _LIFECYCLE_ID]
+    embedding_events = [r for r in raw if r.get("kind") == "embedding"]
     lifecycles = [r for r in raw if r.get("kind") == _LIFECYCLE_ID or r.get("id") == _LIFECYCLE_ID]
     periods_by_org = {lc.get("org_id"): (lc.get("periods") or []) for lc in lifecycles}
     instances = list(_container("instances").read_all_items())
@@ -358,11 +359,41 @@ def cost_summary() -> Dict[str, Any]:
                 "indices": 1,
                 "documents": 0,
                 "token_cost": 0.0,
+                "embedding_tokens": 0,
+                "embedding_cost": 0.0,
             },
         )
         bucket["tokens"] += tot
         bucket["calls"] += 1
         bucket["token_cost"] += cost
+
+    # Embedding (RAG ingestion) events are metered separately so they never
+    # inflate chat call/token/cost metrics, but their cost is still attributed
+    # to the customer as its own line.
+    for e in embedding_events:
+        month = _event_month(e)
+        if not month:
+            continue
+        org = e.get("org_id", "unknown")
+        etok = int(e.get("embedding_tokens", 0) or e.get("total_tokens", 0) or 0)
+        if etok <= 0:
+            continue
+        bucket = months.setdefault(month, {}).setdefault(
+            org,
+            {
+                "org_id": org,
+                "name": name_by_org.get(org, org),
+                "tokens": 0,
+                "calls": 0,
+                "indices": 1,
+                "documents": 0,
+                "token_cost": 0.0,
+                "embedding_tokens": 0,
+                "embedding_cost": 0.0,
+            },
+        )
+        bucket["embedding_tokens"] += etok
+        bucket["embedding_cost"] += pricing.embedding_cost(etok)
 
     # Document count per customer (current index size, used as a proxy weight).
     doc_count: Dict[str, int] = {}
@@ -417,6 +448,7 @@ def cost_summary() -> Dict[str, Any]:
 
         month_token = 0.0
         month_infra = 0.0
+        month_embedding = 0.0
         for c, w in zip(clients, weights):
             share = w / weight_total
             # Pro-rate the infra share by the fraction of the month the customer
@@ -428,16 +460,19 @@ def cost_summary() -> Dict[str, Any]:
             # Back-compat: the AI Search slice of this client's prorated share.
             c["search_cost"] = round(infra.get("ai_search", 0.0) * share * active_frac, 4)
             c["token_cost"] = round(c["token_cost"], 4)
-            c["total_cost"] = round(c["token_cost"] + c["infra_cost"], 4)
+            c["embedding_cost"] = round(c.get("embedding_cost", 0.0), 4)
+            c["total_cost"] = round(c["token_cost"] + c["embedding_cost"] + c["infra_cost"], 4)
             month_token += c["token_cost"]
             month_infra += c["infra_cost"]
+            month_embedding += c["embedding_cost"]
         clients.sort(key=lambda x: x["total_cost"], reverse=True)
-        month_total = round(month_token + month_infra, 2)
+        month_total = round(month_token + month_embedding + month_infra, 2)
         grand_total += month_total
         by_month.append(
             {
                 "month": month,
                 "token_cost": round(month_token, 2),
+                "embedding_cost": round(month_embedding, 4),
                 "infra_cost": round(month_infra, 2),
                 "infra_full": round(infra_monthly, 2),
                 "search_cost": round(infra.get("ai_search", 0.0), 2),

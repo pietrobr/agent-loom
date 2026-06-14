@@ -360,6 +360,7 @@ export function CostsPage() {
                     <TableHeaderCell>Active days</TableHeaderCell>
                     <TableHeaderCell>Infra share</TableHeaderCell>
                     <TableHeaderCell>Token cost</TableHeaderCell>
+                    <TableHeaderCell>Embedding</TableHeaderCell>
                     <TableHeaderCell>Infra cost</TableHeaderCell>
                     <TableHeaderCell>Total</TableHeaderCell>
                   </TableRow>
@@ -386,6 +387,9 @@ export function CostsPage() {
                       </TableCell>
                       <TableCell>{Math.round((c.infra_weight ?? 0) * 100)}%</TableCell>
                       <TableCell>{smallMoney(c.token_cost, currency)}</TableCell>
+                      <TableCell title={`${(c.embedding_tokens ?? 0).toLocaleString()} tokens`}>
+                        {smallMoney(c.embedding_cost ?? 0, currency)}
+                      </TableCell>
                       <TableCell>{money(c.infra_cost, currency)}</TableCell>
                       <TableCell>
                         <Text weight="semibold">{money(c.total_cost, currency)}</Text>

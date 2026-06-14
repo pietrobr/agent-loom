@@ -43,6 +43,7 @@ MODEL_FALLBACKS_USD_PER_1K = {
     "gpt-4.1-mini": {"input_per_1k": 0.000400, "output_per_1k": 0.001600},
     "gpt-4.1": {"input_per_1k": 0.00200, "output_per_1k": 0.00800},
     "o4-mini": {"input_per_1k": 0.001100, "output_per_1k": 0.004400},
+    "text-embedding-3-small": {"input_per_1k": 0.000020, "output_per_1k": 0.0},
 }
 
 # Monthly USD fallbacks for the shared components in the resource group. These

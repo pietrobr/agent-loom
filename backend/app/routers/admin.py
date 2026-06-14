@@ -85,6 +85,47 @@ def solution_costs(_: Principal = Depends(require_admin)) -> Dict[str, Any]:
     return cosmos.cost_summary()
 
 
+@router.post("/reindex")
+def reindex_all(_: Principal = Depends(require_admin)) -> Dict[str, Any]:
+    """Migrate every customer's Search index to the vector+semantic RAG schema.
+
+    Runs inside the backend (which sits in the VNet and can reach both Cosmos
+    and Search). Re-chunks + embeds existing documents and drops the original
+    whole-document records. Idempotent: re-running is a no-op once migrated.
+    """
+    results: Dict[str, Any] = {}
+    totals = {"sources": 0, "chunks": 0, "embedding_tokens": 0, "deleted": 0}
+    for tenant in cosmos.list_tenants():
+        org_id = tenant.get("org_id") or tenant.get("id")
+        if not org_id:
+            continue
+        try:
+            res = search.reindex_org(org_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            results[org_id] = {"error": str(exc)}
+            continue
+        results[org_id] = res
+        for k in totals:
+            totals[k] += int(res.get(k, 0) or 0)
+        emb_tokens = int(res.get("embedding_tokens", 0) or 0)
+        if emb_tokens:
+            cosmos.log_metering(
+                {
+                    "id": str(uuid.uuid4()),
+                    "org_id": org_id,
+                    "instance_id": "",
+                    "template_id": "",
+                    "ts": _now(),
+                    "kind": "embedding",
+                    "input_tokens": emb_tokens,
+                    "output_tokens": 0,
+                    "total_tokens": emb_tokens,
+                    "embedding_tokens": emb_tokens,
+                }
+            )
+    return {"totals": totals, "by_customer": results}
+
+
 @router.delete("/customers/{org_id}")
 def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[str, Any]:
     """Delete a customer. Refused if any instance is still attached (the admin
@@ -288,13 +329,32 @@ async def upload_knowledge(
         text = ""
 
     doc_id = str(uuid.uuid4())
-    search.upload_docs(
+    result = search.upload_docs(
         org_id,
         instance_id,
         [{"id": doc_id, "title": title, "content": text, "source": source}],
     )
+    # Meter the embedding tokens consumed while indexing (RAG ingestion cost).
+    emb_tokens = int(result.get("embedding_tokens", 0) or 0)
+    if emb_tokens:
+        cosmos.log_metering(
+            {
+                "id": str(uuid.uuid4()),
+                "org_id": org_id,
+                "instance_id": instance_id,
+                "template_id": (cosmos.get_instance(org_id, instance_id) or {}).get("template_id", ""),
+                "ts": _now(),
+                "kind": "embedding",
+                "input_tokens": emb_tokens,
+                "output_tokens": 0,
+                "total_tokens": emb_tokens,
+                "embedding_tokens": emb_tokens,
+            }
+        )
     return {
         "id": doc_id,
         "blob": f"{org_id}/{instance_id}/{file.filename}",
         "indexed": True,
+        "chunks": result.get("chunks", 0),
+        "embedding_tokens": emb_tokens,
     }

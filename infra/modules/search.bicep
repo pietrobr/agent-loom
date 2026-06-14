@@ -15,6 +15,9 @@ resource search 'Microsoft.Search/searchServices@2024-03-01-preview' = {
     hostingMode: 'default'
     disableLocalAuth: true
     publicNetworkAccess: 'enabled'
+    // Enable the semantic ranker (free plan: 1000 queries/month, then the app
+    // falls back to keyword+vector). Required for query_type='semantic'.
+    semanticSearch: 'free'
   }
 }
 

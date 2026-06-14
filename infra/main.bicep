@@ -28,6 +28,12 @@ param foundryModelName string = 'gpt-4o-mini'
 @description('Foundry model version.')
 param foundryModelVersion string = '2024-07-18'
 
+@description('Foundry embedding model to deploy (for RAG vector search).')
+param embeddingModelName string = 'text-embedding-3-small'
+
+@description('Foundry embedding model version.')
+param embeddingModelVersion string = '1'
+
 @description('Container image tag to deploy initially (azd overrides this).')
 param containerImageTag string = 'latest'
 
@@ -180,6 +186,8 @@ module foundry 'modules/foundry.bicep' = {
     projectName: names.foundryProj
     modelName: foundryModelName
     modelVersion: foundryModelVersion
+    embeddingModelName: embeddingModelName
+    embeddingModelVersion: embeddingModelVersion
     tags: commonTags
     backendPrincipalId: managedIdentity.properties.principalId
     deployerPrincipalId: principalId
@@ -252,6 +260,7 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'KEYVAULT_URI',     value: keyvault.outputs.uri }
       { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundry.outputs.projectEndpoint }
       { name: 'FOUNDRY_MODEL_DEPLOYMENT', value: foundryModelName }
+      { name: 'EMBEDDING_DEPLOYMENT', value: foundry.outputs.embeddingDeployment }
       { name: 'FOUNDRY_PORTAL_URL', value: foundry.outputs.portalUrl }
       { name: 'FOUNDRY_TENANT_ID', value: foundry.outputs.tenantId }
       { name: 'AZURE_CLIENT_ID',  value: managedIdentity.properties.clientId }
@@ -315,6 +324,7 @@ output STORAGE_CONTAINER       string = 'knowledge'
 output KEYVAULT_URI            string = keyvault.outputs.uri
 output FOUNDRY_PROJECT_ENDPOINT string = foundry.outputs.projectEndpoint
 output FOUNDRY_MODEL_DEPLOYMENT string = foundryModelName
+output EMBEDDING_DEPLOYMENT string = foundry.outputs.embeddingDeployment
 output ACR_LOGIN_SERVER        string = acr.outputs.loginServer
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = acr.outputs.loginServer
 output BACKEND_URL             string = 'https://${backendApp.outputs.fqdn}'
