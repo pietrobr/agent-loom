@@ -474,6 +474,38 @@ So the workflow is: **provision once with `azd up`**, then iterate locally
 against that backend — edit code, save, and the running app reloads immediately;
 you only need to redeploy images when you want the change live on Azure.
 
+> ⚠️ **Network access — dev only, NOT for production.** When you run the backend
+> on your machine, it leaves the VNet, so it can only reach the Azure data
+> services if those services are reachable **from the public internet**. By
+> default `azd up` locks them down: **Cosmos DB** and **Blob Storage** are
+> created with `publicNetworkAccess = Disabled` (reachable only via private
+> endpoints inside the VNet), while **AI Search**, **Foundry** and **Key Vault**
+> are reached over their public service endpoints with managed-identity / Entra
+> auth. To develop locally against this deployment you must **temporarily** open
+> public access to the private services, for example:
+>
+> ```bash
+> # Allow only YOUR current public IP (preferred over opening to all)
+> $myip = (Invoke-RestMethod https://api.ipify.org)
+> az cosmosdb update -g rg-agentloom-dev -n <cosmos-account> --public-network-access ENABLED --ip-range-filter "$myip"
+> az storage account update -g rg-agentloom-dev -n <storage-account> --public-network-access Enabled --default-action Deny
+> az storage account network-rule add -g rg-agentloom-dev --account-name <storage-account> --ip-address "$myip"
+> ```
+>
+> **This is a local-development convenience only.** Exposing Cosmos/Storage to
+> the public internet weakens the tenant-policy-compliant private-networking
+> posture described above. **Do not do this in production** — production traffic
+> must stay on the VNet via private endpoints. Revert as soon as you finish:
+>
+> ```bash
+> az cosmosdb update -g rg-agentloom-dev -n <cosmos-account> --public-network-access DISABLED
+> az storage account update -g rg-agentloom-dev -n <storage-account> --public-network-access Disabled
+> ```
+>
+> Alternatively, avoid opening anything by developing **from inside the VNet**
+> (e.g. a jump VM / Bastion or a VPN into the VNet), which keeps the production
+> private-networking model intact.
+
 ```bash
 # Backend (uses your az login credentials via DefaultAzureCredential)
 cd backend && pip install -r requirements.txt
