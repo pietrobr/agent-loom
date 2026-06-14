@@ -137,12 +137,9 @@ flowchart LR
       direction TB
       FE["customer-webapp"]
       API["FastAPI front door<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
-      subgraph Iso["Per-org isolation (one deployment)"]
-        direction LR
-        DA[("org A<br/>Cosmos pk · kb-orgA")]
-        DB[("org B<br/>Cosmos pk · kb-orgB")]
-        DC[("org C<br/>Cosmos pk · kb-orgC")]
-      end
+      DA[("org A data<br/>Cosmos pk · kb-orgA")]
+      DB[("org B data<br/>Cosmos pk · kb-orgB")]
+      DC[("org C data<br/>Cosmos pk · kb-orgC")]
     end
 
     UA --> UF
