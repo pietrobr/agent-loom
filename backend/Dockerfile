@@ -7,7 +7,9 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY backend/requirements.txt /app/requirements.txt
-RUN pip install -r /app/requirements.txt
+# Upgrade build tooling first (clears the wheel path-traversal CVE) then install.
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install -r /app/requirements.txt
 
 COPY backend/app /app/app
 COPY config /app/config
