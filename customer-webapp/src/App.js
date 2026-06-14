@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useRef, useState } from "react";
 import { Button, Textarea, Text, Dropdown, Option, Spinner, Badge, makeStyles, tokens, Avatar, MessageBar, } from "@fluentui/react-components";
-import { Send24Filled } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { devLogin, fetchBranding, fetchDemoCustomers, getToken, streamChat, } from "./api";
 const useStyles = makeStyles({
@@ -27,6 +27,32 @@ const useStyles = makeStyles({
     },
     logo: { height: "30px", width: "30px", color: "#fff" },
     spacer: { flexGrow: 1 },
+    refreshBtn: {
+        minWidth: "32px",
+        width: "32px",
+        height: "32px",
+        padding: 0,
+        color: "#fff",
+        border: "1px solid rgba(255,255,255,0.45)",
+        backgroundColor: "rgba(255,255,255,0.12)",
+        borderRadius: "8px",
+        transition: "background-color 120ms ease, transform 120ms ease",
+        ":hover": {
+            backgroundColor: "rgba(255,255,255,0.28)",
+            color: "#fff",
+            transform: "translateY(-1px)",
+        },
+        ":active": { transform: "translateY(0)" },
+    },
+    spin: {
+        animationName: {
+            from: { transform: "rotate(0deg)" },
+            to: { transform: "rotate(360deg)" },
+        },
+        animationDuration: "0.8s",
+        animationIterationCount: "infinite",
+        animationTimingFunction: "linear",
+    },
     chat: {
         flexGrow: 1,
         overflowY: "auto",
@@ -91,6 +117,7 @@ export function App() {
     const [err, setErr] = useState("");
     const [convId, setConvId] = useState();
     const [lastUsage, setLastUsage] = useState(null);
+    const [refreshing, setRefreshing] = useState(false);
     const chatRef = useRef(null);
     // Sign in (dev) + load branding whenever the customer changes.
     async function selectCustomer(c) {
@@ -108,17 +135,39 @@ export function App() {
             setErr(e.message);
         }
     }
-    // Load the real customer list (whatever exists in the backend) on mount.
-    useEffect(() => {
-        fetchDemoCustomers()
-            .then((list) => {
+    // Load the real customer list (whatever exists in the backend). Keeps the
+    // current selection if it still exists; otherwise selects the first one.
+    async function loadCustomers(opts = {}) {
+        setRefreshing(true);
+        setErr("");
+        try {
+            const list = await fetchDemoCustomers();
             setCustomers(list);
-            if (list.length)
-                selectCustomer(list[0]);
-            else
+            if (!list.length) {
+                setCustomer(null);
                 setErr("No customers with an assigned instance yet. Create one in the Designer.");
-        })
-            .catch((e) => setErr(e.message));
+                return;
+            }
+            const stillThere = opts.keepSelection && customer
+                ? list.find((c) => c.org_id === customer.org_id)
+                : undefined;
+            if (stillThere) {
+                setCustomers(list);
+            }
+            else if (!opts.keepSelection || !customer) {
+                await selectCustomer(list[0]);
+            }
+        }
+        catch (e) {
+            setErr(e.message);
+        }
+        finally {
+            setRefreshing(false);
+        }
+    }
+    // Initial load on mount.
+    useEffect(() => {
+        loadCustomers();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     useEffect(() => {
@@ -155,7 +204,7 @@ export function App() {
                                     const c = customers.find((x) => x.org_id === d.optionValue);
                                     if (c)
                                         selectCustomer(c);
-                                }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text || (busy ? _jsx(Spinner, { size: "tiny" }) : "") })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
+                                }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), _jsx(Button, { appearance: "transparent", className: styles.refreshBtn, title: "Refresh customer list", "aria-label": "Refresh customer list", disabled: refreshing, icon: _jsx(ArrowClockwise20Regular, { className: refreshing ? styles.spin : undefined }), onClick: () => loadCustomers({ keepSelection: true }) }), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text || (busy ? _jsx(Spinner, { size: "tiny" }) : "") })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
                                 send();

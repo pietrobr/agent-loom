@@ -12,7 +12,7 @@ import {
   Avatar,
   MessageBar,
 } from "@fluentui/react-components";
-import { Send24Filled } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import {
   BrandingResponse,
@@ -48,6 +48,32 @@ const useStyles = makeStyles({
   },
   logo: { height: "30px", width: "30px", color: "#fff" },
   spacer: { flexGrow: 1 },
+  refreshBtn: {
+    minWidth: "32px",
+    width: "32px",
+    height: "32px",
+    padding: 0,
+    color: "#fff",
+    border: "1px solid rgba(255,255,255,0.45)",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderRadius: "8px",
+    transition: "background-color 120ms ease, transform 120ms ease",
+    ":hover": {
+      backgroundColor: "rgba(255,255,255,0.28)",
+      color: "#fff",
+      transform: "translateY(-1px)",
+    },
+    ":active": { transform: "translateY(0)" },
+  },
+  spin: {
+    animationName: {
+      from: { transform: "rotate(0deg)" },
+      to: { transform: "rotate(360deg)" },
+    },
+    animationDuration: "0.8s",
+    animationIterationCount: "infinite",
+    animationTimingFunction: "linear",
+  },
   chat: {
     flexGrow: 1,
     overflowY: "auto",
@@ -118,6 +144,7 @@ export function App() {
   const [err, setErr] = useState("");
   const [convId, setConvId] = useState<string | undefined>();
   const [lastUsage, setLastUsage] = useState<any>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
   // Sign in (dev) + load branding whenever the customer changes.
@@ -136,15 +163,38 @@ export function App() {
     }
   }
 
-  // Load the real customer list (whatever exists in the backend) on mount.
-  useEffect(() => {
-    fetchDemoCustomers()
-      .then((list) => {
+  // Load the real customer list (whatever exists in the backend). Keeps the
+  // current selection if it still exists; otherwise selects the first one.
+  async function loadCustomers(opts: { keepSelection?: boolean } = {}) {
+    setRefreshing(true);
+    setErr("");
+    try {
+      const list = await fetchDemoCustomers();
+      setCustomers(list);
+      if (!list.length) {
+        setCustomer(null);
+        setErr("No customers with an assigned instance yet. Create one in the Designer.");
+        return;
+      }
+      const stillThere =
+        opts.keepSelection && customer
+          ? list.find((c) => c.org_id === customer.org_id)
+          : undefined;
+      if (stillThere) {
         setCustomers(list);
-        if (list.length) selectCustomer(list[0]);
-        else setErr("No customers with an assigned instance yet. Create one in the Designer.");
-      })
-      .catch((e) => setErr(e.message));
+      } else if (!opts.keepSelection || !customer) {
+        await selectCustomer(list[0]);
+      }
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  // Initial load on mount.
+  useEffect(() => {
+    loadCustomers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -220,6 +270,17 @@ export function App() {
               </Option>
             ))}
           </Dropdown>
+          <Button
+            appearance="transparent"
+            className={styles.refreshBtn}
+            title="Refresh customer list"
+            aria-label="Refresh customer list"
+            disabled={refreshing}
+            icon={
+              <ArrowClockwise20Regular className={refreshing ? styles.spin : undefined} />
+            }
+            onClick={() => loadCustomers({ keepSelection: true })}
+          />
           {customer && customer.instances.length > 1 && (
             <Dropdown
               size="small"
