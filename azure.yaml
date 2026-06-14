@@ -29,7 +29,7 @@ services:
       path: Dockerfile
       context: ../
 hooks:
-  postprovision:
+  postdeploy:
     windows:
       shell: pwsh
       run: ./scripts/setup.ps1

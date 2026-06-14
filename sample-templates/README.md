@@ -5,7 +5,7 @@ tab) live here as JSON, one file per template. They are the single source of
 truth that `scripts/create_foundry_agents.py` seeds into Cosmos during install.
 
 A template is a reusable definition — name, category, base instructions, the
-parameters a partner can expose, whether it allows agentic retrieval, and the
+parameters a provider can expose, whether it allows agentic retrieval, and the
 default model. A real Foundry agent is only materialised **per customer** when
 an instance is configured.
 
@@ -24,7 +24,7 @@ an instance is configured.
 | `name`, `description`, `category` | Shown in the SaaS Console. |
 | `model` | Default model deployment. Overridden at seed time by `FOUNDRY_MODEL_DEPLOYMENT` when set. |
 | `instructions` | Base system instructions; each customer adds an addendum per instance. |
-| `parameters` | Configurable knobs surfaced to the partner. |
+| `parameters` | Configurable knobs surfaced to the provider. |
 | `agentic_retrieval` | When `true`, instances may enable Azure AI Search agentic retrieval. |
 | `status` | `draft` or `published`. |
 

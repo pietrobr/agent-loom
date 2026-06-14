@@ -1,46 +1,36 @@
 #!/usr/bin/env pwsh
-# AgentLoom post-provision hook: seeds Cosmos catalog + creates Foundry agents +
-# seeds the two demo customers. Invoked by ``azd up``.
+# AgentLoom post-provision hook: seeds the catalog (agent templates) + the two
+# demo customers (instances + knowledge). Invoked by ``azd up``.
+#
+# Cosmos DB is private (publicNetworkAccess=Disabled), so this hook cannot reach
+# it from the developer machine. Instead it drives the backend Container App —
+# which lives inside the VNet — over its public HTTPS ingress (BACKEND_URL).
+# The backend performs all the Cosmos/Search/Blob/Foundry writes. No firewall
+# changes required.
 $ErrorActionPreference = "Stop"
 
 $repo = Split-Path -Parent $PSScriptRoot
 
 # azd places resolved outputs into the current environment.
-$env:COSMOS_ENDPOINT          = azd env get-value COSMOS_ENDPOINT
-$env:COSMOS_DATABASE          = azd env get-value COSMOS_DATABASE
-$env:SEARCH_ENDPOINT          = azd env get-value SEARCH_ENDPOINT
-$env:STORAGE_ACCOUNT          = azd env get-value STORAGE_ACCOUNT
-$env:STORAGE_CONTAINER        = azd env get-value STORAGE_CONTAINER
-$env:KEYVAULT_URI             = azd env get-value KEYVAULT_URI
-$env:FOUNDRY_PROJECT_ENDPOINT = azd env get-value FOUNDRY_PROJECT_ENDPOINT
+$env:BACKEND_URL              = azd env get-value BACKEND_URL
 $env:FOUNDRY_MODEL_DEPLOYMENT = azd env get-value FOUNDRY_MODEL_DEPLOYMENT
 
-Write-Host "Installing backend dependencies for seed scripts…"
-python -m pip install --quiet -r "$repo/backend/requirements.txt"
-
-Write-Host "Creating Foundry agent templates…"
-# Templates are seeded unless SEED_TEMPLATES is set to false. Configure it
-# before `azd up` with:  azd env set SEED_TEMPLATES false
+# Seed flags (default: enabled). Configure before `azd up` with e.g.
+#   azd env set SEED_TEMPLATES false
+#   azd env set SEED_DEMO_CUSTOMERS false
 $seedTemplates = azd env get-value SEED_TEMPLATES 2>$null
 if (-not $seedTemplates) { $seedTemplates = "true" }
 $env:SEED_TEMPLATES = $seedTemplates
-if ($seedTemplates.Trim().ToLower() -in @("0", "false", "no", "off")) {
-    Write-Host "Skipping agent templates (SEED_TEMPLATES=$seedTemplates)."
-} else {
-    python "$repo/scripts/create_foundry_agents.py"
-}
 
-# Demo customers are seeded unless SEED_DEMO_CUSTOMERS is set to false. Configure
-# it before `azd up` with:  azd env set SEED_DEMO_CUSTOMERS false
 $seedDemo = azd env get-value SEED_DEMO_CUSTOMERS 2>$null
 if (-not $seedDemo) { $seedDemo = "true" }
 $env:SEED_DEMO_CUSTOMERS = $seedDemo
-if ($seedDemo.Trim().ToLower() -in @("0", "false", "no", "off")) {
-    Write-Host "Skipping demo customers (SEED_DEMO_CUSTOMERS=$seedDemo)."
-} else {
-    Write-Host "Seeding demo customers…"
-    python "$repo/scripts/seed_customers.py"
-}
+
+Write-Host "Installing dependencies for the API seeder…"
+python -m pip install --quiet httpx
+
+Write-Host "Seeding via backend API ($($env:BACKEND_URL))…"
+python "$repo/scripts/seed_via_api.py"
 
 Write-Host "Done. URLs:"
 Write-Host ("  Backend  : " + (azd env get-value BACKEND_URL))
