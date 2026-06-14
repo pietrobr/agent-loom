@@ -87,12 +87,25 @@ it) → runs the template's Foundry agent with the customer's config + retrieved
 context injected → streams tokens back via **SSE** → records usage (chat,
 embedding and agentic planning tokens) in the customer's metering partition.
 
-**Frontend serving:** both SPAs are built statically (Vite) and served by
-**nginx** (`nginx:1.29-alpine`) on port 80 in their own Container App. The API
-base URL is injected **at container start** into `env-config.js` (no rebuild per
-environment), and nginx sets cache-control headers — hashed `/assets/` are
-`immutable`, while `index.html` and `env-config.js` are `no-cache` so new
-deploys are picked up immediately.
+**Frontend serving:** the two web apps (admin-designer and customer-webapp) are
+React + Vite single-page apps. At build time Vite compiles each into static
+files (HTML, JS, CSS); these are then served by a lightweight **nginx**
+(`nginx:1.29-alpine`) web server on port 80, each in its own Container App — no
+Node.js runtime is needed in production.
+
+The same image is reused across environments: instead of baking the backend URL
+into the build, the API base URL is written **when the container starts** into a
+small `env-config.js` file that the app reads at load. This means one build can
+be promoted from dev to prod without rebuilding.
+
+nginx also sets HTTP cache-control headers tuned for SPAs:
+
+- files under `/assets/` have content-hashed names (they change whenever their
+  content changes), so they are marked `immutable` and cached aggressively by
+  the browser;
+- `index.html` and `env-config.js` keep stable names, so they are marked
+  `no-cache` — the browser always re-checks them, and a new deploy (new asset
+  hashes, new API URL) is picked up immediately.
 
 ---
 
