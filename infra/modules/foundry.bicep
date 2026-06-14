@@ -9,6 +9,9 @@ param embeddingModelVersion string = '1'
 param tags object
 param backendPrincipalId string
 param deployerPrincipalId string
+// Search service managed identity — granted Cognitive Services User so Azure AI
+// Search can call the Foundry LLM for agentic retrieval query planning.
+param searchPrincipalId string = ''
 
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: accountName
@@ -87,9 +90,28 @@ resource deployerFoundryRole 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+// Cognitive Services User — lets the Azure AI Search managed identity invoke the
+// Foundry chat model for agentic retrieval query planning + answer synthesis.
+var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+
+resource searchCognitiveUserRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(searchPrincipalId)) {
+  name: guid(account.id, searchPrincipalId, 'aifoundry-cognitive-user')
+  scope: account
+  properties: {
+    principalId: searchPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId)
+  }
+}
+
 output accountName string = account.name
 output projectName string = project.name
 output embeddingDeployment string = embeddingDeployment.name
+// Azure OpenAI endpoint of the Foundry account (used by Azure AI Search agentic
+// retrieval to reach the chat model for query planning + answer synthesis).
+output accountEndpoint string = 'https://${account.name}.openai.azure.com'
+output chatDeployment string = modelDeployment.name
+output chatModelName string = modelName
 // Foundry data-plane endpoint, e.g. https://<account>.services.ai.azure.com/api/projects/<project>
 output projectEndpoint string = 'https://${account.name}.services.ai.azure.com/api/projects/${project.name}'
 // Azure AI Foundry portal deep link base for this project (wsid only; the tenant

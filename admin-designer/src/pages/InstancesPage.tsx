@@ -12,6 +12,7 @@ import {
   Spinner,
   MessageBar,
   Switch,
+  Badge,
   Dialog,
   DialogTrigger,
   DialogSurface,
@@ -108,6 +109,7 @@ export function InstancesPage() {
   const [addendum, setAddendum] = useState("");
   const [suggested, setSuggested] = useState("");
   const [model, setModel] = useState("");
+  const [agentic, setAgentic] = useState(false);
   const [assigning, setAssigning] = useState(false);
   // When set, the form edits this existing instance instead of creating a new one.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -214,6 +216,7 @@ export function InstancesPage() {
         display_name: displayName,
         overrides: addendum ? { instructions_addendum: addendum } : {},
         suggested_questions: questions,
+        agentic_retrieval: agentic,
         ...(model ? { model } : {}),
       });
       resetForm();
@@ -232,6 +235,7 @@ export function InstancesPage() {
     setAddendum("");
     setSuggested("");
     setModel("");
+    setAgentic(false);
     setAssignOpen(false);
   }
 
@@ -242,6 +246,7 @@ export function InstancesPage() {
     setAddendum("");
     setSuggested("");
     setModel("");
+    setAgentic(false);
     setAssignOpen(true);
   }
 
@@ -252,6 +257,7 @@ export function InstancesPage() {
     setAddendum(String(i.overrides?.instructions_addendum || ""));
     setSuggested((i.suggested_questions || []).join("\n"));
     setModel(i.model || "");
+    setAgentic(Boolean(i.agentic_retrieval));
     setAssignOpen(true);
   }
 
@@ -411,7 +417,19 @@ export function InstancesPage() {
           >
             <div className={styles.cardTop}>
               <CardHeader
-                header={<Text weight="semibold">{i.display_name}</Text>}
+                header={
+                  <Text weight="semibold">
+                    {i.display_name}
+                    {i.agentic_retrieval ? (
+                      <>
+                        {" "}
+                        <Badge appearance="tint" color="brand" size="small">
+                          Agentic RAG
+                        </Badge>
+                      </>
+                    ) : null}
+                  </Text>
+                }
                 description={
                   <Text size={200}>
                     template: <code>{i.template_id}</code>
@@ -593,6 +611,17 @@ export function InstancesPage() {
               value={suggested}
               onChange={(_, d) => setSuggested(d.value)}
             />
+            {(() => {
+              const tpl = templates.find((t) => t.id === templateId);
+              if (!tpl?.agentic_retrieval) return null;
+              return (
+                <Switch
+                  checked={agentic}
+                  onChange={(_, d) => setAgentic(d.checked)}
+                  label="Agentic retrieval (Azure AI Search query planning + answer synthesis)"
+                />
+              );
+            })()}
             <div className={styles.row}>
               <Button
                 appearance="primary"

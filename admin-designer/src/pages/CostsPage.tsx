@@ -405,6 +405,7 @@ export function CostsPage() {
                     <TableHeaderCell>Infra share</TableHeaderCell>
                     <TableHeaderCell>Token cost</TableHeaderCell>
                     <TableHeaderCell>Embedding</TableHeaderCell>
+                    <TableHeaderCell>Agentic</TableHeaderCell>
                     <TableHeaderCell>Infra cost</TableHeaderCell>
                     <TableHeaderCell>Total</TableHeaderCell>
                   </TableRow>
@@ -433,6 +434,18 @@ export function CostsPage() {
                       <TableCell>{smallMoney(c.token_cost, currency)}</TableCell>
                       <TableCell title={`${(c.embedding_tokens ?? 0).toLocaleString()} tokens`}>
                         {smallMoney(c.embedding_cost ?? 0, currency)}
+                      </TableCell>
+                      <TableCell title={`${(c.agentic_tokens ?? 0).toLocaleString()} planning tokens`}>
+                        {(c.agentic_tokens ?? 0) > 0 ? (
+                          <>
+                            {smallMoney(c.agentic_cost ?? 0, currency)}{" "}
+                            <Badge appearance="tint" color="brand" size="small">
+                              RAG
+                            </Badge>
+                          </>
+                        ) : (
+                          smallMoney(c.agentic_cost ?? 0, currency)
+                        )}
                       </TableCell>
                       <TableCell>{money(c.infra_cost, currency)}</TableCell>
                       <TableCell>

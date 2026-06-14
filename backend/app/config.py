@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # Embedding model deployment used for the RAG vector search.
     embedding_deployment: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
+    # Azure OpenAI endpoint + chat deployment of the Foundry account, used by
+    # Azure AI Search agentic retrieval (knowledge base query planning).
+    foundry_account_endpoint: str = ""
+    foundry_chat_deployment: str = "gpt-4o-mini"
+    foundry_chat_model: str = "gpt-4o-mini"
     # Azure AI Foundry portal deep link for the project (agents-list URL, wsid only).
     foundry_portal_url: str = ""
     # Tenant id appended to portal deep links (kept separate to avoid '&' in env vars).

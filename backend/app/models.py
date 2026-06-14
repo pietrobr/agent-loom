@@ -38,6 +38,9 @@ class Template(BaseModel):
     allowed_models: List[str] = Field(default_factory=list)
     instructions: str = ""
     parameters: List[TemplateParam] = Field(default_factory=list)
+    # When true, instances of this template may enable Azure AI Search agentic
+    # retrieval (LLM query planning + answer synthesis over their knowledge base).
+    agentic_retrieval: bool = False
     status: Literal["draft", "published"] = "draft"
     created_at: str = Field(default_factory=_now)
     updated_at: str = Field(default_factory=_now)
@@ -81,6 +84,8 @@ class Instance(BaseModel):
     disabled_tools: List[Dict[str, Any]] = Field(default_factory=list)
     # Starter prompts shown as clickable chips in the customer chat.
     suggested_questions: List[str] = Field(default_factory=list)
+    # Opt-in to Azure AI Search agentic retrieval for this instance's KB.
+    agentic_retrieval: bool = False
     foundry_agent_id: Optional[str] = None  # real per-customer Foundry agent
     created_at: str = Field(default_factory=_now)
 

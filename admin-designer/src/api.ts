@@ -87,6 +87,7 @@ export interface Template {
   allowed_models?: string[];
   instructions: string;
   parameters: TemplateParam[];
+  agentic_retrieval?: boolean;
   status: "draft" | "published";
 }
 export interface Branding {
@@ -114,6 +115,7 @@ export interface Instance {
   branding?: Branding;
   model?: string;
   suggested_questions?: string[];
+  agentic_retrieval?: boolean;
   foundry_agent_id?: string;
 }
 export interface MeteringDay {
@@ -142,6 +144,8 @@ export interface CostClient {
   token_cost: number;
   embedding_tokens?: number;
   embedding_cost?: number;
+  agentic_tokens?: number;
+  agentic_cost?: number;
   search_cost: number;
   infra_cost: number;
   total_cost: number;
@@ -150,6 +154,7 @@ export interface CostMonth {
   month: string;
   token_cost: number;
   embedding_cost?: number;
+  agentic_cost?: number;
   search_cost: number;
   infra_cost: number;
   infra_full?: number;
@@ -213,6 +218,11 @@ export const api = {
 
   getInstanceAgent: (orgId: string, instanceId: string) =>
     req<AgentInfo>(`/v1/admin/customers/${orgId}/instances/${instanceId}/agent`),
+  toggleInstanceAgentic: (orgId: string, instanceId: string, enabled: boolean) =>
+    req<{ instance_id: string; agentic_retrieval: boolean }>(
+      `/v1/admin/customers/${orgId}/instances/${instanceId}/agentic`,
+      { method: "POST", body: JSON.stringify({ enabled }) }
+    ),
   toggleInstanceAgentTool: (orgId: string, instanceId: string, key: string, enabled: boolean) =>
     req<{ status: string }>(
       `/v1/admin/customers/${orgId}/instances/${instanceId}/agent/tools`,

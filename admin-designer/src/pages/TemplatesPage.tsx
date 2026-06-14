@@ -11,6 +11,7 @@ import {
   Label,
   Badge,
   Spinner,
+  Switch,
   makeStyles,
   tokens,
   MessageBar,
@@ -233,6 +234,11 @@ export function TemplatesPage() {
             resize="vertical"
             value={draft.instructions || ""}
             onChange={(_, d) => setDraft({ ...draft, instructions: d.value })}
+          />
+          <Switch
+            checked={Boolean(draft.agentic_retrieval)}
+            onChange={(_, d) => setDraft({ ...draft, agentic_retrieval: d.checked })}
+            label="Allow agentic retrieval (Azure AI Search) for instances of this template"
           />
           <Label>Status</Label>
           <Dropdown

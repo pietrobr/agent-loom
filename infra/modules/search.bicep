@@ -9,6 +9,9 @@ resource search 'Microsoft.Search/searchServices@2024-03-01-preview' = {
   location: location
   tags: tags
   sku: { name: 'basic' }
+  // System-assigned identity so the Search service can call the Foundry LLM for
+  // agentic retrieval query planning (needs Cognitive Services User on Foundry).
+  identity: { type: 'SystemAssigned' }
   properties: {
     replicaCount: 1
     partitionCount: 1
@@ -69,3 +72,4 @@ resource deployerServiceContribRole 'Microsoft.Authorization/roleAssignments@202
 output endpoint string = 'https://${search.name}.search.windows.net'
 output name string = search.name
 output id string = search.id
+output principalId string = search.identity.principalId

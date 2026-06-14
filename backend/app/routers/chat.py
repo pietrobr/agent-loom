@@ -4,6 +4,7 @@ instance against its template's Foundry agent, streams tokens back.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -14,9 +15,10 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..models import ChatRequest
 from ..security import Principal, get_principal
-from ..services import cosmos, foundry, search
+from ..services import agentic, cosmos, foundry, search
 
 router = APIRouter(prefix="/v1", tags=["chat"])
+log = logging.getLogger(__name__)
 
 
 def _thread_id_for(org_id: str, conversation_id: str) -> str:
@@ -50,8 +52,29 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     conversation_id = req.conversation_id or str(uuid.uuid4())
     thread_id = _thread_id_for(p.org_id, conversation_id)
 
-    # Retrieve this instance's private knowledge (top 5 hits).
-    hits = search.search(p.org_id, req.message, instance_id=req.instance_id, top=5)
+    # Retrieve this instance's private knowledge. When the instance opted into
+    # Azure AI Search agentic retrieval, run the knowledge base (LLM query
+    # planning + answer synthesis) and use its grounding references; otherwise
+    # use the standard hybrid+semantic search. Falls back gracefully.
+    agentic_used = False
+    agentic_tokens = 0
+    hits: list = []
+    if instance.get("agentic_retrieval"):
+        try:
+            system_prompt = (instance.get("overrides") or {}).get("instructions_addendum") or ""
+            answer, refs, agentic_tokens = await anyio.to_thread.run_sync(
+                agentic.retrieve, p.org_id, req.message, req.instance_id, system_prompt
+            )
+            hits = refs
+            # If the KB returned no grounding refs but did synthesize an answer,
+            # pass that answer as a single knowledge item so the agent can use it.
+            if not hits and answer:
+                hits = [{"title": "Agentic answer", "content": answer, "source": "agentic"}]
+            agentic_used = True
+        except Exception as exc:  # pragma: no cover - degrade to standard RAG
+            log.warning("agentic retrieve failed for %s; falling back: %s", p.org_id, exc)
+    if not agentic_used:
+        hits = search.search(p.org_id, req.message, instance_id=req.instance_id, top=5)
 
     async def event_stream() -> AsyncGenerator[dict, None]:
         yield {"event": "meta", "data": json.dumps({
@@ -59,6 +82,7 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             "instance_id": req.instance_id,
             "template_id": template["id"],
             "kb_hits": len(hits),
+            "agentic": agentic_used,
         })}
 
         usage_info = {"input": 0, "output": 0, "total": 0}
@@ -107,5 +131,21 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             "output_tokens": usage_info.get("output", 0),
             "total_tokens": usage_info.get("total", 0),
         })
+
+        # Meter the agentic-retrieval planning/synthesis tokens separately so
+        # they don't inflate chat metrics but still show up as their own cost.
+        if agentic_used and agentic_tokens:
+            cosmos.log_metering({
+                "id": str(uuid.uuid4()),
+                "org_id": p.org_id,
+                "instance_id": req.instance_id,
+                "template_id": template["id"],
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "kind": "agentic",
+                "input_tokens": agentic_tokens,
+                "output_tokens": 0,
+                "total_tokens": agentic_tokens,
+                "agentic_tokens": agentic_tokens,
+            })
 
     return EventSourceResponse(event_stream())

@@ -4,6 +4,7 @@ Every endpoint requires the ``admin`` role.
 """
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any, Dict, List
 
@@ -11,9 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
 from ..security import Principal, require_admin
-from ..services import blob, cosmos, foundry, search
+from ..services import agentic, blob, cosmos, foundry, search
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
+log = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -150,6 +152,8 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
         )
     # No instances → safe to drop the (now-empty) Search index and the tenant.
     search.delete_index(org_id)
+    # Tear down any agentic-retrieval knowledge base + source for this customer.
+    agentic.delete_resources(org_id)
     # Close the active period before removing the tenant; the lifecycle record
     # lives in the metering partition and survives the deletion.
     tenant = cosmos.get_tenant(org_id)
@@ -214,7 +218,44 @@ def upsert_instance(org_id: str, payload: Dict[str, Any], _: Principal = Depends
         prev_model=prev_model,
         agent_exists=bool(existing and existing.get("foundry_agent_id")),
     )
+
+    # Agentic retrieval can only be enabled if the template allows it; provision
+    # the per-customer knowledge source + knowledge base on enable (idempotent).
+    if instance.agentic_retrieval and not template.get("agentic_retrieval"):
+        raise HTTPException(400, "this template does not allow agentic retrieval")
+    if instance.agentic_retrieval:
+        try:
+            agentic.ensure_resources(org_id)
+        except Exception as exc:  # pragma: no cover - provisioning is best-effort
+            log.warning("agentic provisioning failed for %s: %s", org_id, exc)
+
     return cosmos.save_instance(instance.model_dump())
+
+
+@router.post("/customers/{org_id}/instances/{instance_id}/agentic")
+def toggle_instance_agentic(
+    org_id: str,
+    instance_id: str,
+    payload: Dict[str, Any],
+    _: Principal = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Enable/disable Azure AI Search agentic retrieval on an existing instance.
+
+    Enabling provisions the customer's knowledge source + knowledge base. The
+    template must allow agentic retrieval.
+    """
+    inst = cosmos.get_instance(org_id, instance_id)
+    if not inst:
+        raise HTTPException(404, "instance not found for this org")
+    enabled = bool(payload.get("enabled", True))
+    if enabled:
+        template = cosmos.get_template(inst.get("template_id", ""))
+        if not (template and template.get("agentic_retrieval")):
+            raise HTTPException(400, "this template does not allow agentic retrieval")
+        agentic.ensure_resources(org_id)
+    inst["agentic_retrieval"] = enabled
+    saved = cosmos.save_instance(inst)
+    return {"instance_id": instance_id, "agentic_retrieval": enabled, "id": saved.get("id")}
 
 
 @router.delete("/customers/{org_id}/instances/{instance_id}")

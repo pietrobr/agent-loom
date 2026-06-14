@@ -191,6 +191,7 @@ module foundry 'modules/foundry.bicep' = {
     tags: commonTags
     backendPrincipalId: managedIdentity.properties.principalId
     deployerPrincipalId: principalId
+    searchPrincipalId: search.outputs.principalId
   }
 }
 
@@ -261,6 +262,9 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundry.outputs.projectEndpoint }
       { name: 'FOUNDRY_MODEL_DEPLOYMENT', value: foundryModelName }
       { name: 'EMBEDDING_DEPLOYMENT', value: foundry.outputs.embeddingDeployment }
+      { name: 'FOUNDRY_ACCOUNT_ENDPOINT', value: foundry.outputs.accountEndpoint }
+      { name: 'FOUNDRY_CHAT_DEPLOYMENT', value: foundry.outputs.chatDeployment }
+      { name: 'FOUNDRY_CHAT_MODEL', value: foundry.outputs.chatModelName }
       { name: 'FOUNDRY_PORTAL_URL', value: foundry.outputs.portalUrl }
       { name: 'FOUNDRY_TENANT_ID', value: foundry.outputs.tenantId }
       { name: 'AZURE_CLIENT_ID',  value: managedIdentity.properties.clientId }
