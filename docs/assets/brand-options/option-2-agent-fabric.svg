@@ -58,8 +58,10 @@
     <text x="186" y="30">Tenants</text>
     <rect x="332" width="126" height="48" rx="10" fill="#FFFFFF" stroke="#D8E3EA"/>
     <text x="352" y="30">RAG</text>
+    <rect x="474" width="248" height="48" rx="10" fill="#FFFFFF" stroke="#D8E3EA"/>
+    <text x="494" y="30">Agentic Retrieval</text>
   </g>
   <g transform="translate(96 470)" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="600" fill="#476071">
-    <text x="0" y="0">Built for partners shipping AI agent SaaS on Azure.</text>
+    <text x="0" y="0">A multi-tenant accelerator for shipping AI agent SaaS on Azure.</text>
   </g>
 </svg>
