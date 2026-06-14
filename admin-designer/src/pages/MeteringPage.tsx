@@ -12,6 +12,7 @@ import {
   TableHeaderCell,
   TableBody,
   TableCell,
+  Tooltip,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -412,14 +413,9 @@ export function MeteringPage() {
                   <TableRow key={k}>
                     <TableCell>
                       {instanceNames[k] ? (
-                        <div>
+                        <Tooltip content={k} relationship="label" withArrow>
                           <Text>{instanceNames[k]}</Text>
-                          <div>
-                            <Text size={100} font="monospace" style={{ color: tokens.colorNeutralForeground3 }}>
-                              {k}
-                            </Text>
-                          </div>
-                        </div>
+                        </Tooltip>
                       ) : (
                         <code>{k}</code>
                       )}
