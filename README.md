@@ -441,9 +441,45 @@ Do **not** use B2B guest users in the provider tenant for customer identities.
 
 ## Local development
 
+You can run all three apps (backend + the two frontends) **on your machine** so
+you see code changes **instantly** — `uvicorn --reload` hot-reloads the backend
+and Vite's HMR hot-reloads the SPAs — **without rebuilding or redeploying the
+container images to Azure**.
+
+> **Important — "local" means local *processes*, not a self-contained stack.**
+> Only the app processes run locally. The backend still talks to the **real
+> Azure resources** (Foundry LLM + embeddings, Cosmos DB, AI Search, Blob
+> Storage) using your `az login` identity via `DefaultAzureCredential`. There is
+> **no emulator or mock**: the endpoints in
+> [backend/app/config.py](backend/app/config.py) default to empty strings, so any
+> request that touches data or the agent will fail until they point at a real,
+> already-provisioned deployment. In practice you must have run **`azd up`
+> first**, then feed the backend the resource endpoints (a `backend/.env` file or
+> environment variables — `config.py` reads `.env`).
+
+### What runs locally vs. what stays on Azure
+
+| Component | Local | Azure |
+|---|:---:|:---:|
+| Backend FastAPI (`uvicorn --reload`) | ✅ local process | — |
+| admin-designer / customer-webapp (Vite HMR) | ✅ local processes | — |
+| Dev auth token (`ALLOW_DEV_TOKENS=true`, HS256) | ✅ | — |
+| **LLM chat + embeddings (Foundry)** | ❌ | ✅ required |
+| **Cosmos DB** (tenant data) | ❌ | ✅ required |
+| **Azure AI Search** (`kb-{org_id}`) | ❌ | ✅ required |
+| **Blob Storage** (knowledge) | ❌ | ✅ required |
+| **Key Vault** | ❌ | ✅ (if used) |
+
+So the workflow is: **provision once with `azd up`**, then iterate locally
+against that backend — edit code, save, and the running app reloads immediately;
+you only need to redeploy images when you want the change live on Azure.
+
 ```bash
 # Backend (uses your az login credentials via DefaultAzureCredential)
 cd backend && pip install -r requirements.txt
+# Point the backend at your provisioned Azure resources (Cosmos, Search,
+# Storage, Foundry, …) via a backend/.env file or env vars — these come from
+# your `azd up` outputs. Without them, data/agent calls will fail.
 $env:ALLOW_DEV_TOKENS = "true"   # enables POST /v1/auth/dev-token (dev only!)
 uvicorn app.main:app --reload --port 8000
 
