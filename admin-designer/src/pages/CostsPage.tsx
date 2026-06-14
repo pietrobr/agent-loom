@@ -64,15 +64,18 @@ function money(n: number, currency: string): string {
 /** Currency with extra precision for tiny token costs (e.g. $0.0035). */
 function smallMoney(n: number, currency: string): string {
   if (n > 0 && n < 0.01) {
+    // Pick enough decimals to surface the first two significant digits, so even
+    // a $0.00003 embedding cost is visible instead of rounding to $0.0000.
+    const decimals = Math.min(8, Math.max(4, -Math.floor(Math.log10(n)) + 1));
     try {
       return new Intl.NumberFormat(undefined, {
         style: "currency",
         currency,
-        minimumFractionDigits: 4,
-        maximumFractionDigits: 4,
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
       }).format(n);
     } catch {
-      return `${n.toFixed(4)} ${currency}`;
+      return `${n.toFixed(decimals)} ${currency}`;
     }
   }
   return money(n, currency);

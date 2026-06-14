@@ -460,7 +460,7 @@ def cost_summary() -> Dict[str, Any]:
             # Back-compat: the AI Search slice of this client's prorated share.
             c["search_cost"] = round(infra.get("ai_search", 0.0) * share * active_frac, 4)
             c["token_cost"] = round(c["token_cost"], 4)
-            c["embedding_cost"] = round(c.get("embedding_cost", 0.0), 4)
+            c["embedding_cost"] = round(c.get("embedding_cost", 0.0), 8)
             c["total_cost"] = round(c["token_cost"] + c["embedding_cost"] + c["infra_cost"], 4)
             month_token += c["token_cost"]
             month_infra += c["infra_cost"]
@@ -472,7 +472,7 @@ def cost_summary() -> Dict[str, Any]:
             {
                 "month": month,
                 "token_cost": round(month_token, 2),
-                "embedding_cost": round(month_embedding, 4),
+                "embedding_cost": round(month_embedding, 8),
                 "infra_cost": round(month_infra, 2),
                 "infra_full": round(infra_monthly, 2),
                 "search_cost": round(infra.get("ai_search", 0.0), 2),
