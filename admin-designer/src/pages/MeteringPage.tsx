@@ -16,7 +16,7 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import { Search24Regular } from "@fluentui/react-icons";
-import { api, Metering, MeteringDay, Tenant } from "../api";
+import { api, Metering, MeteringDay, Tenant, Instance } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
 const ALL_ORG = "__all__";
@@ -140,6 +140,8 @@ export function MeteringPage() {
   const [err, setErr] = useState("");
   const [granularity, setGranularity] = useState<Granularity>("daily");
   const [metric, setMetric] = useState<Metric>("tokens");
+  // Maps instance id (GUID) → friendly display name for the "Usage by instance" table.
+  const [instanceNames, setInstanceNames] = useState<Record<string, string>>({});
 
   // Customer picker (searchable + paginated), mirrors InstancesPage.
   const [customerSearch, setCustomerSearch] = useState("");
@@ -198,6 +200,28 @@ export function MeteringPage() {
       .then(setData)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
+  }, [orgId, customers]);
+
+  // Load instance display names so the "Usage by instance" table shows friendly
+  // names instead of raw GUIDs. For "All customers" we merge every customer's instances.
+  useEffect(() => {
+    if (!orgId) return;
+    const orgs = orgId === ALL_ORG ? customers.map((c) => c.org_id) : [orgId];
+    if (!orgs.length) return;
+    let cancelled = false;
+    Promise.all(orgs.map((o) => api.listInstances(o).catch(() => [] as Instance[])))
+      .then((lists) => {
+        if (cancelled) return;
+        const map: Record<string, string> = {};
+        for (const list of lists) {
+          for (const inst of list) map[inst.id] = inst.display_name;
+        }
+        setInstanceNames(map);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [orgId, customers]);
 
   const filteredCustomers = useMemo(() => {
@@ -387,7 +411,18 @@ export function MeteringPage() {
                 {Object.entries(data.by_instance).map(([k, v]) => (
                   <TableRow key={k}>
                     <TableCell>
-                      <code>{k}</code>
+                      {instanceNames[k] ? (
+                        <div>
+                          <Text>{instanceNames[k]}</Text>
+                          <div>
+                            <Text size={100} font="monospace" style={{ color: tokens.colorNeutralForeground3 }}>
+                              {k}
+                            </Text>
+                          </div>
+                        </div>
+                      ) : (
+                        <code>{k}</code>
+                      )}
                     </TableCell>
                     <TableCell>{v.calls}</TableCell>
                     <TableCell>{v.tokens.toLocaleString()}</TableCell>
