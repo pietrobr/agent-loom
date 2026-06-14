@@ -188,6 +188,24 @@ export function CostsPage() {
     return { month: cur.month, daysInMonth, rows, projectedInfraRecovered, projectedTotal, infraMonthly, gap };
   }, [data, statusByOrg]);
 
+  // What the SaaS owner actually pays at month end: the fixed shared platform
+  // plus the variable AI usage (LLM tokens, embeddings, agentic) for the current month.
+  const ownerBill = useMemo(() => {
+    const cur = data?.by_month?.[0];
+    const platform = data?.infra_monthly || 0;
+    const tokens = cur?.token_cost || 0;
+    const embedding = cur?.embedding_cost || 0;
+    const agentic = cur?.agentic_cost || 0;
+    return {
+      month: cur?.month,
+      platform,
+      tokens,
+      embedding,
+      agentic,
+      total: platform + tokens + embedding + agentic,
+    };
+  }, [data]);
+
   return (
     <div className={styles.wrap}>
       <div className={styles.meta}>
@@ -255,8 +273,18 @@ export function CostsPage() {
             </Card>
           </div>
 
-          <Card className={styles.monthCard}>
-            <Text weight="semibold">Shared infrastructure (per month, split across active customers)</Text>
+          <Card className={styles.monthCard} style={{ order: 1 }}>
+            <div className={styles.monthHead}>
+              <Text weight="semibold">Total monthly cost — platform + AI usage</Text>
+              <Text weight="semibold">{money(ownerBill.total, currency)}</Text>
+            </div>
+            <Text size={200} italic>
+              What the SaaS owner pays at month end: the fixed shared Azure platform
+              (billed whether or not customers are active) plus the variable AI usage —
+              LLM chat tokens, embeddings and agentic retrieval — for{" "}
+              {ownerBill.month || "the current month"}. The same costs are attributed
+              per customer in the breakdown below.
+            </Text>
             <Table size="small">
               <TableHeader>
                 <TableRow>
@@ -273,18 +301,40 @@ export function CostsPage() {
                 ))}
                 <TableRow>
                   <TableCell>
-                    <Text weight="semibold">Total</Text>
+                    <Text weight="semibold">Platform subtotal (fixed)</Text>
                   </TableCell>
                   <TableCell>
-                    <Text weight="semibold">{money(data.infra_monthly, currency)}</Text>
+                    <Text weight="semibold">{money(ownerBill.platform, currency)}</Text>
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell>LLM chat (tokens)</TableCell>
+                  <TableCell>{smallMoney(ownerBill.tokens, currency)}</TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell>Embeddings (indexing)</TableCell>
+                  <TableCell>{smallMoney(ownerBill.embedding, currency)}</TableCell>
+                </TableRow>
+                {ownerBill.agentic > 0 && (
+                  <TableRow>
+                    <TableCell>Agentic retrieval (planning)</TableCell>
+                    <TableCell>{smallMoney(ownerBill.agentic, currency)}</TableCell>
+                  </TableRow>
+                )}
+                <TableRow>
+                  <TableCell>
+                    <Text weight="semibold">Total (platform + AI usage)</Text>
+                  </TableCell>
+                  <TableCell>
+                    <Text weight="semibold">{money(ownerBill.total, currency)}</Text>
                   </TableCell>
                 </TableRow>
               </TableBody>
             </Table>
           </Card>
 
-          <Card className={styles.chartCard}>
-            <Text weight="semibold">Monthly cost</Text>
+          <Card className={styles.chartCard} style={{ order: 3 }}>
+            <Text weight="semibold">Monthly cost — actual recorded so far (current)</Text>
             {chartMonths.length === 0 ? (
               <Text size={200} italic>
                 No cost recorded yet.
@@ -295,10 +345,13 @@ export function CostsPage() {
                   <div
                     key={m.month}
                     className={styles.barCol}
-                    title={`${money(m.total_cost, currency)} (tokens ${money(
+                    title={`${money(m.total_cost, currency)} (tokens ${smallMoney(
                       m.token_cost,
                       currency
-                    )} · search ${money(m.search_cost, currency)})`}
+                    )} · embedding ${smallMoney(m.embedding_cost ?? 0, currency)} · agentic ${smallMoney(
+                      m.agentic_cost ?? 0,
+                      currency
+                    )} · infra ${money(m.infra_cost, currency)})`}
                   >
                     <span className={styles.barValue}>{money(m.total_cost, currency)}</span>
                     <div
@@ -313,7 +366,7 @@ export function CostsPage() {
           </Card>
 
           {projection && (
-            <Card className={styles.monthCard}>
+            <Card className={styles.monthCard} style={{ order: 4 }}>
               <div className={styles.monthHead}>
                 <Text weight="semibold">End-of-month projection · {projection.month}</Text>
                 <Text weight="semibold">{money(projection.projectedTotal, currency)}</Text>
@@ -382,7 +435,7 @@ export function CostsPage() {
           )}
 
           {data.by_month.map((m) => (
-            <Card key={m.month} className={styles.monthCard}>
+            <Card key={m.month} className={styles.monthCard} style={{ order: 2 }}>
               <div className={styles.monthHead}>
                 <Text weight="semibold">{m.month}</Text>
                 <Text weight="semibold">{money(m.total_cost, currency)}</Text>
