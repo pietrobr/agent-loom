@@ -19,7 +19,16 @@ Write-Host "Installing backend dependencies for seed scripts…"
 python -m pip install --quiet -r "$repo/backend/requirements.txt"
 
 Write-Host "Creating Foundry agent templates…"
-python "$repo/scripts/create_foundry_agents.py"
+# Templates are seeded unless SEED_TEMPLATES is set to false. Configure it
+# before `azd up` with:  azd env set SEED_TEMPLATES false
+$seedTemplates = azd env get-value SEED_TEMPLATES 2>$null
+if (-not $seedTemplates) { $seedTemplates = "true" }
+$env:SEED_TEMPLATES = $seedTemplates
+if ($seedTemplates.Trim().ToLower() -in @("0", "false", "no", "off")) {
+    Write-Host "Skipping agent templates (SEED_TEMPLATES=$seedTemplates)."
+} else {
+    python "$repo/scripts/create_foundry_agents.py"
+}
 
 # Demo customers are seeded unless SEED_DEMO_CUSTOMERS is set to false. Configure
 # it before `azd up` with:  azd env set SEED_DEMO_CUSTOMERS false

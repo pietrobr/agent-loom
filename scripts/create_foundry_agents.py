@@ -15,6 +15,7 @@ Prereqs:
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from datetime import datetime, timezone
@@ -26,57 +27,54 @@ sys.path.insert(0, str(REPO / "backend"))
 from app.services import cosmos as cosmos_svc  # noqa: E402
 from app.models import SYSTEM_ORG  # noqa: E402
 
+# Agent templates (blueprints) live as JSON under sample-templates/, one file
+# per template, so they are editable without touching this script.
+TEMPLATES_DIR = REPO / "sample-templates"
 
-TEMPLATES = [
-    {
-        "id": "customer-care-assistant",
-        "name": "Customer Care Assistant",
-        "description": "Courteous English-speaking customer-care agent for general inquiries.",
-        "category": "support",
-        "model": os.environ.get("FOUNDRY_MODEL_DEPLOYMENT", "gpt-4o-mini"),
-        "instructions": (
-            "You are the Customer Care Assistant. Always reply in English, "
-            "be concise, courteous, and professional. If the user asks "
-            "something outside your scope, apologise politely and offer to "
-            "escalate. Never invent policies; rely on the customer-specific "
-            "guidance and knowledge base provided in the user turn."
-        ),
-        "parameters": [
-            {"key": "tone", "label": "Tone of voice", "type": "string", "default": "friendly", "required": False},
-        ],
-        "status": "published",
-    },
-    {
-        "id": "knowledge-faq-assistant",
-        "name": "Knowledge / FAQ Assistant",
-        "description": "Answers strictly grounded on the customer's uploaded knowledge base.",
-        "category": "knowledge",
-        "model": os.environ.get("FOUNDRY_MODEL_DEPLOYMENT", "gpt-4o-mini"),
-        "instructions": (
-            "You are a helpful Knowledge / FAQ Assistant for the customer. "
-            "Answer the user's question using the information in the "
-            "'Knowledge base context' section provided in the user message. "
-            "That context is authoritative and safe to use - quote and "
-            "summarise it freely to answer the question, and mention the "
-            "source title in parentheses when helpful. "
-            "If the knowledge base context does not contain the answer, say: "
-            "'I don't have that information in our knowledge base.' "
-            "Always reply in English in a friendly, professional tone."
-        ),
-        "parameters": [
-            {"key": "max_sources", "label": "Max sources to cite", "type": "number", "default": 3, "required": False},
-        ],
-        "status": "published",
-    },
-]
+
+def load_templates() -> list[dict]:
+    """Load every *.json template from sample-templates/. The default model is
+    overridden by FOUNDRY_MODEL_DEPLOYMENT when that env var is set."""
+    model = os.environ.get("FOUNDRY_MODEL_DEPLOYMENT")
+    out: list[dict] = []
+    for path in sorted(TEMPLATES_DIR.glob("*.json")):
+        try:
+            t = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # pragma: no cover
+            print(f"  !! skipping {path.name}: {exc}")
+            continue
+        if model:
+            t["model"] = model
+        out.append(t)
+    return out
+
+
+def _templates_enabled() -> bool:
+    """Whether to seed the agent templates. Controlled by SEED_TEMPLATES
+    (default: enabled). Set to 0/false/no to install without any template."""
+    return os.environ.get("SEED_TEMPLATES", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
 
 
 def main() -> None:
+    if not _templates_enabled():
+        print("SEED_TEMPLATES is disabled — skipping template seeding.")
+        return
+
     print("Ensuring Cosmos containers...")
     cosmos_svc.ensure_containers()
 
+    templates = load_templates()
+    if not templates:
+        print(f"No templates found in {TEMPLATES_DIR}. Nothing to seed.")
+        return
+
     print("Seeding template catalog (no Foundry agents created yet)...")
-    for t in TEMPLATES:
+    for t in templates:
         record = {
             **t,
             "org_id": SYSTEM_ORG,
@@ -85,7 +83,7 @@ def main() -> None:
         }
         record.setdefault("created_at", record["updated_at"])
         cosmos_svc.save_template(record)
-        print(f"  saved template {t['id']} (status={t['status']})")
+        print(f"  saved template {t['id']} (status={t.get('status', 'draft')})")
 
     print("Done.")
 

@@ -18,7 +18,16 @@ echo "Installing backend dependencies for seed scripts…"
 python3 -m pip install --quiet -r "$REPO/backend/requirements.txt"
 
 echo "Creating Foundry agent templates…"
-python3 "$REPO/scripts/create_foundry_agents.py"
+# Templates are seeded unless SEED_TEMPLATES is set to false. Configure it
+# before `azd up` with:  azd env set SEED_TEMPLATES false
+SEED_TEMPLATES="$(azd env get-value SEED_TEMPLATES 2>/dev/null || echo true)"
+export SEED_TEMPLATES
+case "$(printf '%s' "$SEED_TEMPLATES" | tr '[:upper:]' '[:lower:]')" in
+  0|false|no|off)
+    echo "Skipping agent templates (SEED_TEMPLATES=$SEED_TEMPLATES)." ;;
+  *)
+    python3 "$REPO/scripts/create_foundry_agents.py" ;;
+esac
 
 # Demo customers are seeded unless SEED_DEMO_CUSTOMERS is set to false. Configure
 # it before `azd up` with:  azd env set SEED_DEMO_CUSTOMERS false

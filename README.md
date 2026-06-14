@@ -96,10 +96,12 @@ AgentLoom/
 ├─ admin-designer/            # React + Vite + Fluent UI (partner admin) — served by nginx
 ├─ customer-webapp/           # React + Vite + Fluent UI (customer chat) — served by nginx
 ├─ scripts/
-│  ├─ create_foundry_agents.py  # creates the TEMPLATE agents in Foundry
+│  ├─ create_foundry_agents.py  # seeds the agent TEMPLATES (from sample-templates/)
 │  ├─ seed_customers.py         # 2 demo customers + instances + indexes + knowledge
 │  ├─ mint_demo_token.py        # local JWT for manual testing
 │  └─ setup.ps1 / setup.sh      # azd post-provision orchestration
+├─ sample-templates/          # agent template blueprints (JSON) — single source of truth
+├─ sample-customers/          # demo + manual customers (README + knowledge per customer)
 └─ config/
    ├─ branding.json            # partner brand (overridable by env)
    └─ .env.sample
@@ -142,7 +144,8 @@ azd up
    three Container Apps that scale to zero).
 2. Build and push the backend + two web app images to ACR.
 3. Run the **post-provision hook** (`scripts/setup.*`), which:
-   - creates the **2 Foundry agent templates** (`create_foundry_agents.py`), and
+   - seeds the **agent templates** from
+     [`sample-templates/`](./sample-templates/) (`create_foundry_agents.py`), and
    - seeds the **2 demo customers** with instances, Search indexes and private
      knowledge (`seed_customers.py`).
 
@@ -153,27 +156,35 @@ At the end, azd prints the three URLs (`BACKEND_URL`, `ADMIN_URL`,
 > roles, the Bicep already grants them to the deployer — just re-run
 > `azd hooks run postprovision` once the role assignments have propagated.
 
-### Install with or without the demo customers
+### Install with or without templates & demo customers
 
-The two demo customers (**Horizon Travel**, **NovaTech Solutions**) are seeded
-by default. Their content lives under
-[`sample-customers/`](./sample-customers/) (one folder per customer with a
-`README.md` and a `knowledge/` folder), which is the single source of truth the
-seed script reads from.
+Both the agent templates and the demo customers are seeded by default. Each is
+defined as files (single source of truth) and gated by an env flag, so you can
+choose exactly what gets installed:
 
-To install a **clean instance with no customers** (only the agent-template
-catalog), set the flag before deploying:
+| Flag (`azd env set …`) | Default | Effect when `false` |
+|---|---|---|
+| `SEED_TEMPLATES false` | seed | Skip the agent templates in [`sample-templates/`](./sample-templates/) |
+| `SEED_DEMO_CUSTOMERS false` | seed | Skip the demo customers in [`sample-customers/`](./sample-customers/) |
 
 ```bash
+# Clean install: no templates, no demo customers (empty catalog)
+azd env set SEED_TEMPLATES false
+azd env set SEED_DEMO_CUSTOMERS false
+azd up
+
+# Templates only, no demo customers
 azd env set SEED_DEMO_CUSTOMERS false
 azd up
 ```
 
-Set it back to `true` (or unset it) to seed them again. The flag is honored by
-the post-provision hook and by `scripts/seed_customers.py` directly
-(`SEED_DEMO_CUSTOMERS` env var). The other sample customers (Aurelia Motors,
-Stride Labs) are always **manual** — onboard them from the Admin Console using
-their folder `README.md`.
+> The demo customers reference template ids, so disabling templates while
+> keeping demo customers will fail to find a template — disable both, or keep
+> templates enabled. Flags are honored by the post-provision hook and by the
+> seed scripts directly (`SEED_TEMPLATES`, `SEED_DEMO_CUSTOMERS` env vars).
+
+The other sample customers (Aurelia Motors, Stride Labs) are always **manual** —
+onboard them from the Admin Console using their folder `README.md`.
 
 ---
 
