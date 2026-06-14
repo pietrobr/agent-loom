@@ -117,13 +117,28 @@ their `org_id`, and the **single** AgentLoom deployment keeps each organization
 fully isolated server-side — same code, same containers, separate data per
 `org_id`.
 
+**Two identity providers, two audiences.** End customers sign in via **Entra
+External ID (CIAM)**, while the provider's own staff sign in to the
+admin-designer via the provider's **corporate Entra ID (workforce) tenant** — an
+admin is an internal employee, *not* an External ID consumer. The front door
+accepts both: customer tokens (audience = customer app, must carry `org_id`) and
+admin tokens (audience = admin app, carry `roles` incl. `admin`, and `org_id`
+is ignored / set to `_system`).
+
 ```mermaid
 flowchart LR
+    subgraph Admins["Provider staff"]
+      OPS["Admin / operators"]
+    end
     subgraph Orgs["End-customer organizations"]
       direction TB
       UA["Org A users"]
       UB["Org B users"]
       UC["Org C users"]
+    end
+
+    subgraph WF["Provider corporate Entra ID (workforce tenant)"]
+      ADAPP["admin-designer app registration<br/>roles: admin"]
     end
 
     subgraph CIAM["Microsoft Entra External ID (CIAM) tenant"]
@@ -135,6 +150,7 @@ flowchart LR
 
     subgraph Deploy["AgentLoom — single deployment"]
       direction TB
+      AD["admin-designer"]
       FE["customer-webapp"]
       API["FastAPI front door<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
       DA[("org A data<br/>Cosmos pk · kb-orgA")]
@@ -142,12 +158,17 @@ flowchart LR
       DC[("org C data<br/>Cosmos pk · kb-orgC")]
     end
 
+    OPS --> ADAPP
     UA --> UF
     UB --> UF
     UC --> UF
+
+    ADAPP -- "admin token · roles=admin" --> AD
     CLAIM -- "id/access token + org_id" --> FE
+    AD -- "admin JWT" --> API
     FE -- "Bearer JWT" --> API
-    API -. "validate issuer / audience via JWKS" .-> CIAM
+    API -. "validate admin tokens via JWKS" .-> WF
+    API -. "validate customer tokens via JWKS" .-> CIAM
     API -- "org_id = A" --> DA
     API -- "org_id = B" --> DB
     API -- "org_id = C" --> DC
@@ -156,14 +177,14 @@ flowchart LR
     classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
     classDef idp fill:#f3e9ff,stroke:#8a3ffc,color:#3d1a73;
     class DA,DB,DC store;
-    class FE,API compute;
-    class UF,CLAIM idp;
+    class AD,FE,API compute;
+    class UF,CLAIM,ADAPP idp;
 ```
 
 Only the token verification in [backend/app/security.py](backend/app/security.py)
-changes (HS256 → JWKS-based RS256 against your External ID tenant); middleware,
-isolation and routers are untouched because they depend only on the
-`org_id`/`roles` claims. See [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
+changes (HS256 → JWKS-based RS256 against your tenants); middleware, isolation
+and routers are untouched because they depend only on the `org_id`/`roles`
+claims. See [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
 `org_id` from the token, enforces isolation) → backend embeds the question and
