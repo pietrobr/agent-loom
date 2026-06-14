@@ -441,14 +441,21 @@ cd admin-designer && npm install && npm run dev   # http://localhost:5173
 cd customer-webapp && npm install && npm run dev   # http://localhost:5174
 ```
 
-Mint an admin token for the Designer:
+Sign in to the Designer:
 
-```bash
-python scripts/mint_demo_token.py _system admin-user admin
-# paste it into the Designer header "Admin JWT" box
-```
+- In the admin-designer header, click **“Demo admin login”** — it calls the
+  backend `/v1/auth/dev-token` endpoint and stores the admin JWT in
+  `localStorage` for you (no copy-paste). Works only when `ALLOW_DEV_TOKENS=true`.
+- Alternatively, mint a token from the CLI for scripts/`curl`:
 
-The customer-webapp's demo switcher calls `/v1/auth/dev-token` automatically
+  ```bash
+  python scripts/mint_demo_token.py _system admin-user admin
+  ```
+
+In production, replace the demo login with real **Entra ID (workforce) admin
+SSO** — see the identity diagram in [Architecture](#architecture).
+
+The customer-webapp's demo switcher also calls `/v1/auth/dev-token` automatically
 (only works when `ALLOW_DEV_TOKENS=true`).
 
 ---
