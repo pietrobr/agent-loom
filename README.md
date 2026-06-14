@@ -181,10 +181,18 @@ flowchart LR
     class UF,CLAIM,ADAPP idp;
 ```
 
-Only the token verification in [backend/app/security.py](backend/app/security.py)
-changes (HS256 → JWKS-based RS256 against your tenants); middleware, isolation
-and routers are untouched because they depend only on the `org_id`/`roles`
-claims. See [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
+Adopting Entra requires changing **only one file**: the token-verification
+helper in [backend/app/security.py](backend/app/security.py). Today (MVP) it
+checks tokens signed with **HS256** — a single shared secret used both to sign
+and to verify. In production you switch it to **RS256 verified via JWKS**: the
+backend no longer holds any signing secret; instead it downloads the public
+keys from your Entra tenants' JWKS endpoints and uses them to verify each
+token's signature, issuer and audience. (Why RS256 + JWKS is the secure,
+no-shared-secret choice is explained in §6.) Nothing else moves: the tenant
+middleware, the per-`org_id` isolation and all routers keep working unchanged,
+because they only ever read the `org_id` / `roles` claims from the validated
+token — they don't care *how* it was validated. See
+[§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
 `org_id` from the token, enforces isolation) → backend embeds the question and
