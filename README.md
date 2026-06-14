@@ -38,38 +38,67 @@ own no infrastructure.
 ## Architecture
 
 ```mermaid
-flowchart LR
-    subgraph Customer["Customer browser"]
-      CW[customer-webapp<br/>brandable chat]
-    end
-    subgraph Partner["Partner admin"]
-      AD[admin-designer<br/>catalog · onboarding · metering]
+flowchart TB
+    subgraph Clients["End users"]
+      direction LR
+      CW["customer-webapp<br/>brandable chat (SPA)"]
+      AD["admin-designer<br/>catalog · onboarding<br/>metering · costs"]
     end
 
-    subgraph Azure["Partner Azure subscription (single deployment)"]
+    subgraph Azure["Provider Azure subscription — single deployment"]
       direction TB
-      subgraph VNet["Virtual network"]
-        ENV[Container Apps Environment<br/>VNet-integrated]
-        FE[FastAPI front door<br/>+ tenant middleware]
-        PE{{Private endpoints}}
-        ENV --- FE
+
+      subgraph ACA["Container Apps Environment · VNet-integrated"]
+        direction LR
+        WEB["nginx static hosting<br/>(both SPAs)"]
+        API["FastAPI front door<br/>tenant middleware · org_id isolation · SSE"]
+        WEB --> API
       end
-      COS[(Cosmos DB<br/>pk = org_id<br/>public access DISABLED)]
-      SR[(Azure AI Search<br/>kb-&#123;org_id&#125; index/customer)]
-      BL[(Blob Storage<br/>PRIVATE — MI only<br/>public access DISABLED)]
-      KV[(Key Vault)]
-      MI([User-assigned<br/>Managed Identity])
-      FA[[Microsoft Foundry<br/>Agent Service]]
+
+      MI(["User-assigned<br/>Managed Identity"])
+
+      subgraph DataPlane["Data plane · private endpoints (public access OFF)"]
+        direction LR
+        COS[("Cosmos DB<br/>pk = org_id")]
+        BL[("Blob Storage<br/>knowledge — MI only")]
+      end
+
+      subgraph AIPlane["AI plane"]
+        direction LR
+        SR[("Azure AI Search<br/>kb-{org_id} per customer<br/>vector + semantic")]
+        subgraph FDRY["Microsoft Foundry"]
+          direction TB
+          AG[["per-instance agents<br/>one isolated agent / instance"]]
+          CHAT["chat model<br/>gpt-4o-mini"]
+          EMB["embedding model<br/>text-embedding-3-small"]
+        end
+      end
+
+      KV[("Key Vault")]
     end
 
-    CW -- "Bearer JWT (org_id claim)" --> FE
-    AD -- "admin JWT" --> FE
-    FE -- org_id filter --> PE -. private link .-> COS
-    FE -- MI --> PE -. private link .-> BL
-    FE -- org_id filter --> SR
-    FE -- MI --> KV
-    FE -- MI --> FA
-    MI -. least-privilege RBAC .-> COS & SR & BL & KV & FA
+    CW -- "Bearer JWT · org_id claim" --> WEB
+    AD -- "admin JWT" --> WEB
+
+    API -- "org_id filter" --> COS
+    API -- "knowledge blobs" --> BL
+    API -- "search kb-{org_id}" --> SR
+    API -- "embed docs & queries" --> EMB
+    API -- "run agent" --> AG
+    API -- "secrets" --> KV
+    AG --> CHAT
+    SR -. "agentic query planning" .-> CHAT
+
+    MI -. "least-privilege RBAC" .-> COS & BL & SR & FDRY & KV
+
+    classDef store fill:#fff6e6,stroke:#d89a00,color:#5b4300;
+    classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
+    classDef ai fill:#eafaf1,stroke:#1b9e5a,color:#0c4a2c;
+    classDef ident fill:#f3e9ff,stroke:#8a3ffc,color:#3d1a73;
+    class COS,BL,KV store;
+    class WEB,API compute;
+    class SR,AG,CHAT,EMB ai;
+    class MI ident;
 ```
 
 **Private networking:** Cosmos DB and Blob Storage have **public network access
@@ -78,6 +107,66 @@ disabled** (tenant-policy compliant). The Container Apps environment is
 private DNS zones — no traffic over the public internet. Azure AI Search,
 Foundry and Key Vault are reached via managed identity over their service
 endpoints.
+
+### Production identity: Microsoft Entra External ID (multi-customer)
+
+For the MVP, end-customer auth uses a signed JWT carrying the `org_id` claim. In
+production you front it with an **Entra External ID (CIAM)** tenant: every
+customer organization signs in through the same user flow, the token carries
+their `org_id`, and the **single** AgentLoom deployment keeps each organization
+fully isolated server-side — same code, same containers, separate data per
+`org_id`.
+
+```mermaid
+flowchart LR
+    subgraph Orgs["End-customer organizations"]
+      direction TB
+      UA["Org A users"]
+      UB["Org B users"]
+      UC["Org C users"]
+    end
+
+    subgraph CIAM["Microsoft Entra External ID (CIAM) tenant"]
+      direction TB
+      UF["Sign-up / sign-in<br/>user flow + app registration"]
+      CLAIM["org_id claim<br/>custom attribute / claims mapping"]
+      UF --- CLAIM
+    end
+
+    subgraph Deploy["AgentLoom — single deployment"]
+      direction TB
+      FE["customer-webapp"]
+      API["FastAPI front door<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
+      subgraph Iso["Per-org isolation (one deployment)"]
+        direction LR
+        DA[("org A<br/>Cosmos pk · kb-orgA")]
+        DB[("org B<br/>Cosmos pk · kb-orgB")]
+        DC[("org C<br/>Cosmos pk · kb-orgC")]
+      end
+    end
+
+    UA --> UF
+    UB --> UF
+    UC --> UF
+    CLAIM -- "id/access token + org_id" --> FE
+    FE -- "Bearer JWT" --> API
+    API -. "validate issuer / audience via JWKS" .-> CIAM
+    API -- "org_id = A" --> DA
+    API -- "org_id = B" --> DB
+    API -- "org_id = C" --> DC
+
+    classDef store fill:#fff6e6,stroke:#d89a00,color:#5b4300;
+    classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
+    classDef idp fill:#f3e9ff,stroke:#8a3ffc,color:#3d1a73;
+    class DA,DB,DC store;
+    class FE,API compute;
+    class UF,CLAIM idp;
+```
+
+Only the token verification in [backend/app/security.py](backend/app/security.py)
+changes (HS256 → JWKS-based RS256 against your External ID tenant); middleware,
+isolation and routers are untouched because they depend only on the
+`org_id`/`roles` claims. See [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
 `org_id` from the token, enforces isolation) → backend embeds the question and
