@@ -3,21 +3,26 @@
 # AgentLoom
 
 > **AgentLoom** is an open-source, multi-tenant SaaS accelerator that lets a
-> Microsoft **partner** offer their SMB customers AI agents powered by
-> **Microsoft Foundry Agent Service** — using a *catalog of templates →
-> per-customer instances* model.
+> **provider** company serve AI agents to its small- and medium-sized customers
+> in a **centralized SaaS model**, powered by **Microsoft Foundry Agent
+> Service** — using a *catalog of templates → per-customer instances* model.
+>
+> **Note:** this approach is ideal for a **system integrator** that wants to
+> manage many customers centrally, without each customer needing their own Azure
+> subscription.
 
-The partner installs AgentLoom into **their own** Azure subscription (the
-"partner SaaS tenant"). End customers only ever access it through the web; they
+The provider installs AgentLoom into **their own** Azure subscription (the
+"provider SaaS tenant"). End customers only ever access it through the web; they
 own no infrastructure.
 
 - **Product brand is fully customizable** (`PRODUCT_NAME` defaults to *AgentLoom*).
-- **Logical multi-tenancy** (Option B): a single deployment serves every
+- **Logical multi-tenancy**: a single deployment serves every
   customer; isolation is enforced server-side by an `org_id` claim that the
   client can never override.
-- **One Foundry agent per template** (shared parametric model): per-customer
-  config + knowledge are injected at runtime, and the Foundry endpoint is never
-  exposed to customers.
+- **One isolated Foundry agent per instance**: every template assigned to a
+  customer provisions its **own separate, isolated agent in Foundry** (with that
+  customer's config + knowledge baked in). The Foundry endpoint is never exposed
+  to customers.
 - **Retrieval-Augmented Generation (RAG)** per customer: each customer's
   documents are chunked and embedded (`text-embedding-3-small`) into their own
   `kb-{org_id}` Azure AI Search index, then retrieved with vector + semantic
