@@ -93,10 +93,27 @@ files (HTML, JS, CSS); these are then served by a lightweight **nginx**
 (`nginx:1.29-alpine`) web server on port 80, each in its own Container App — no
 Node.js runtime is needed in production.
 
-The same image is reused across environments: instead of baking the backend URL
-into the build, the API base URL is written **when the container starts** into a
-small `env-config.js` file that the app reads at load. This means one build can
-be promoted from dev to prod without rebuilding.
+**One image, many environments — runtime config.** A Vite app normally reads
+its configuration (like the backend URL) from `VITE_*` variables that are
+**frozen into the JavaScript at build time**. That would force you to rebuild a
+separate image for every environment (dev, staging, prod), since each has a
+different backend URL. AgentLoom avoids that by injecting the URL **at container
+startup** instead:
+
+1. The backend URL is passed to the Container App as an environment variable,
+   `API_BASE` (set by the Bicep to the backend's own ingress URL).
+2. When the container starts, a small entrypoint script
+   (`docker-entrypoint.sh`, installed as
+   `/docker-entrypoint.d/99-env-config.sh`) writes that value into a tiny file:
+   `env-config.js` → `window.__API_BASE__ = "https://backend…";`.
+3. `index.html` loads `<script src="/env-config.js">` **before** the app bundle,
+   so by the time the React code runs, `window.__API_BASE__` is already set.
+4. The app's `api.ts` reads `window.__API_BASE__` to know where to send
+   requests.
+
+Because the URL lives in `env-config.js` (written at startup) and **not** in the
+compiled bundle, the *exact same* image built once can be promoted from dev to
+prod unchanged — only the `API_BASE` env var differs between environments.
 
 nginx also sets HTTP cache-control headers tuned for SPAs:
 
