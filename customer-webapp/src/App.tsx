@@ -14,6 +14,7 @@ import {
 } from "@fluentui/react-components";
 import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
+import { Markdown } from "./Markdown";
 import {
   BrandingResponse,
   DemoCustomer,
@@ -97,7 +98,7 @@ const useStyles = makeStyles({
     borderRadius: "14px 14px 14px 2px",
     backgroundColor: tokens.colorNeutralBackground1,
     boxShadow: tokens.shadow2,
-    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
   },
   composer: { display: "flex", gap: "8px", padding: "12px 20px", alignItems: "flex-end" },
   row: { display: "flex", gap: "8px", alignItems: "center" },
@@ -335,7 +336,9 @@ export function App() {
           ) : (
             <div key={i} className={styles.row} style={{ alignSelf: "flex-start" }}>
               <Avatar size={28} color="colorful" name={branding?.product_name || "A"} />
-              <div className={styles.bubbleBot}>{m.text || (busy ? <Spinner size="tiny" /> : "")}</div>
+              <div className={styles.bubbleBot}>
+                {m.text ? <Markdown text={m.text} /> : busy ? <Spinner size="tiny" /> : ""}
+              </div>
             </div>
           )
         )}
