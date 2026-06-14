@@ -1,7 +1,7 @@
 /**
  * Thin API client for the AgentLoom backend.
  *
- * Auth model for the Designer: the partner's admin signs in with an admin
+ * Auth model for the SaaS Console: the provider's admin signs in with an admin
  * token. For the MVP we store an admin JWT in localStorage (minted by
  * `scripts/mint_demo_token.py _system admin-user admin` or issued by the
  * dev-token endpoint). Wire real Entra admin SSO in production.
@@ -27,7 +27,7 @@ export function clearToken(): void {
 /**
  * Demo convenience: obtain an admin JWT from the backend dev-token endpoint
  * (only works when the backend has ALLOW_DEV_TOKENS=true). In production this
- * is replaced by the partner admin Entra ID sign-in flow.
+ * is replaced by the provider admin Entra ID sign-in flow.
  */
 export async function devAdminLogin(): Promise<string> {
   const res = await fetch(`${API_BASE}/v1/auth/dev-token`, {
