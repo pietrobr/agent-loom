@@ -20,8 +20,17 @@ python3 -m pip install --quiet -r "$REPO/backend/requirements.txt"
 echo "Creating Foundry agent templates…"
 python3 "$REPO/scripts/create_foundry_agents.py"
 
-echo "Seeding demo customers…"
-python3 "$REPO/scripts/seed_customers.py"
+# Demo customers are seeded unless SEED_DEMO_CUSTOMERS is set to false. Configure
+# it before `azd up` with:  azd env set SEED_DEMO_CUSTOMERS false
+SEED_DEMO_CUSTOMERS="$(azd env get-value SEED_DEMO_CUSTOMERS 2>/dev/null || echo true)"
+export SEED_DEMO_CUSTOMERS
+case "$(printf '%s' "$SEED_DEMO_CUSTOMERS" | tr '[:upper:]' '[:lower:]')" in
+  0|false|no|off)
+    echo "Skipping demo customers (SEED_DEMO_CUSTOMERS=$SEED_DEMO_CUSTOMERS)." ;;
+  *)
+    echo "Seeding demo customers…"
+    python3 "$REPO/scripts/seed_customers.py" ;;
+esac
 
 echo "Done. URLs:"
 echo "  Backend  : $(azd env get-value BACKEND_URL)"

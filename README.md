@@ -153,6 +153,28 @@ At the end, azd prints the three URLs (`BACKEND_URL`, `ADMIN_URL`,
 > roles, the Bicep already grants them to the deployer — just re-run
 > `azd hooks run postprovision` once the role assignments have propagated.
 
+### Install with or without the demo customers
+
+The two demo customers (**Horizon Travel**, **NovaTech Solutions**) are seeded
+by default. Their content lives under
+[`sample-customers/`](./sample-customers/) (one folder per customer with a
+`README.md` and a `knowledge/` folder), which is the single source of truth the
+seed script reads from.
+
+To install a **clean instance with no customers** (only the agent-template
+catalog), set the flag before deploying:
+
+```bash
+azd env set SEED_DEMO_CUSTOMERS false
+azd up
+```
+
+Set it back to `true` (or unset it) to seed them again. The flag is honored by
+the post-provision hook and by `scripts/seed_customers.py` directly
+(`SEED_DEMO_CUSTOMERS` env var). The other sample customers (Aurelia Motors,
+Stride Labs) are always **manual** — onboard them from the Admin Console using
+their folder `README.md`.
+
 ---
 
 ## Partner customization

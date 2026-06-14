@@ -7,6 +7,7 @@ Idempotent: re-running upserts. Demo customers:
 """
 from __future__ import annotations
 
+import os
 import sys
 import uuid
 from pathlib import Path
@@ -19,6 +20,32 @@ from app.services import search as search_svc  # noqa: E402
 from app.services import blob as blob_svc  # noqa: E402
 from app.services import foundry as foundry_svc  # noqa: E402
 from app.models import SYSTEM_ORG  # noqa: E402
+
+# Demo-customer knowledge lives under sample-customers/<org_id>/knowledge/*.md
+# (the same folder used for manual onboarding), so there is a single source of
+# truth for each customer's content.
+SAMPLES_DIR = REPO / "sample-customers"
+
+
+def load_knowledge_dir(org_id: str) -> list[dict]:
+    """Read a demo customer's knowledge .md files into upload-ready docs.
+
+    Each file becomes one document: the first non-empty line is the title and
+    the whole file is the content. Files are sorted by name (use a NN- prefix
+    to control order). Returns [] if the folder is missing.
+    """
+    kdir = SAMPLES_DIR / org_id / "knowledge"
+    if not kdir.is_dir():
+        print(f"  !! no knowledge folder for {org_id} at {kdir}")
+        return []
+    docs: list[dict] = []
+    for path in sorted(kdir.glob("*.md")):
+        text = path.read_text(encoding="utf-8").strip()
+        if not text:
+            continue
+        title = next((ln.strip() for ln in text.splitlines() if ln.strip()), path.stem)
+        docs.append({"title": title, "source": f"{org_id} knowledge", "content": text})
+    return docs
 
 
 CUSTOMERS = [
@@ -45,36 +72,6 @@ CUSTOMERS = [
             "What is your refund policy?",
             "How do I add baggage to my reservation?",
         ],
-        "knowledge": [
-            {
-                "title": "How do I change my booking?",
-                "source": "FAQ — Bookings",
-                "content": (
-                    "Bookings can be changed free of charge up to 14 days before the "
-                    "departure date through the Horizon Travel portal or by contacting "
-                    "support. Within 14 days a 30 EUR fee per passenger applies. "
-                    "Name corrections (single character typos) are always free."
-                ),
-            },
-            {
-                "title": "What is your refund policy?",
-                "source": "FAQ — Refunds",
-                "content": (
-                    "Cancellations made 30+ days before departure are refunded in full. "
-                    "Cancellations between 29 and 7 days receive a 50% refund. "
-                    "Cancellations within 7 days are non-refundable but eligible for "
-                    "credit on a future booking valid 12 months."
-                ),
-            },
-            {
-                "title": "How do I add baggage to my reservation?",
-                "source": "FAQ — Baggage",
-                "content": (
-                    "Extra baggage can be added in the My Trips section of the portal "
-                    "up to 4 hours before departure. The cost is 30 EUR per 23 kg piece."
-                ),
-            },
-        ],
     },
     {
         "org_id": "novatech",
@@ -99,40 +96,28 @@ CUSTOMERS = [
             "What does the premium support tier include?",
             "What is included in a support contract?",
         ],
-        "knowledge": [
-            {
-                "title": "Standard Support SLA",
-                "source": "Contracts — SLA",
-                "content": (
-                    "Standard tier: response within 4 business hours, resolution "
-                    "target 2 business days for severity 2+ incidents. Coverage "
-                    "Mon–Fri 09:00–18:00 local time."
-                ),
-            },
-            {
-                "title": "Premium Support SLA",
-                "source": "Contracts — SLA",
-                "content": (
-                    "Premium tier: response within 30 minutes 24/7, resolution "
-                    "target 8 hours for severity 1 incidents. Includes a dedicated "
-                    "Technical Account Manager."
-                ),
-            },
-            {
-                "title": "What is included in a support contract?",
-                "source": "Contracts — Scope",
-                "content": (
-                    "Every NovaTech support contract covers: endpoint monitoring, "
-                    "patch management, backup verification, monthly reporting and "
-                    "unlimited helpdesk tickets within the contracted tier hours."
-                ),
-            },
-        ],
     },
 ]
 
 
+def _demo_enabled() -> bool:
+    """Whether to seed the built-in demo customers. Controlled by the
+    SEED_DEMO_CUSTOMERS env var (default: enabled). Set it to 0/false/no to
+    install AgentLoom with an empty customer list (templates are still created
+    by create_foundry_agents.py)."""
+    return os.environ.get("SEED_DEMO_CUSTOMERS", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
 def main() -> None:
+    if not _demo_enabled():
+        print("SEED_DEMO_CUSTOMERS is disabled — skipping demo customer seeding.")
+        return
+
     print("Ensuring Cosmos containers...")
     cosmos_svc.ensure_containers()
 
@@ -186,9 +171,10 @@ def main() -> None:
         cosmos_svc.save_instance(instance)
         print(f"  Instance saved: {instance_id}")
 
-        # Upload knowledge as private blobs AND index into AI Search
+        # Upload knowledge (from sample-customers/<org>/knowledge) as private
+        # blobs AND index into AI Search.
         docs = []
-        for k in c["knowledge"]:
+        for k in load_knowledge_dir(org_id):
             fname = (k["title"][:60].lower().replace(" ", "_").replace("/", "-") + ".txt")
             try:
                 blob_svc.upload(org_id, instance_id, fname, k["content"].encode("utf-8"), "text/plain")
