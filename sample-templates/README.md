@@ -21,7 +21,7 @@ an instance is configured.
 | Field | Meaning |
 |---|---|
 | `id` | Stable template id (also the Cosmos document id). |
-| `name`, `description`, `category` | Shown in the Designer. |
+| `name`, `description`, `category` | Shown in the SaaS Console. |
 | `model` | Default model deployment. Overridden at seed time by `FOUNDRY_MODEL_DEPLOYMENT` when set. |
 | `instructions` | Base system instructions; each customer adds an addendum per instance. |
 | `parameters` | Configurable knobs surfaced to the partner. |

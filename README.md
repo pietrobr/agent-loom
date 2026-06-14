@@ -42,7 +42,7 @@ flowchart TB
     subgraph Clients["End users"]
       direction LR
       CW["customer-webapp<br/>brandable chat (SPA)"]
-      AD["admin-designer<br/>catalog · onboarding<br/>metering · costs"]
+      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs"]
     end
 
     subgraph Azure["Provider Azure subscription — single deployment"]
@@ -150,7 +150,7 @@ flowchart LR
 
     subgraph Deploy["AgentLoom — single deployment"]
       direction TB
-      AD["admin-designer"]
+      AD["SaaS Console"]
       FE["customer-webapp"]
       API["FastAPI front door<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
       DA[("org A data<br/>Cosmos pk · kb-orgA")]
@@ -254,7 +254,7 @@ AgentLoom/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py
 │     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py
 │     └─ services/ cosmos.py search.py blob.py foundry.py embeddings.py agentic.py pricing.py
-├─ admin-designer/            # React + Vite + Fluent UI (partner admin) — served by nginx
+├─ admin-designer/            # SaaS Console — React + Vite + Fluent UI (provider admin), served by nginx
 ├─ customer-webapp/           # React + Vite + Fluent UI (customer chat) — served by nginx
 ├─ scripts/
 │  ├─ create_foundry_agents.py  # seeds the agent TEMPLATES (from sample-templates/)
@@ -386,22 +386,22 @@ azd env set AZURE_RESOURCE_PREFIX contoso
 
 ### 3. Add your own templates
 
-Either use the **Designer → Templates** UI, or add entries to
+Either use the **SaaS Console → Templates** UI, or add entries to
 `scripts/create_foundry_agents.py` (each gets a real Foundry `agent_id`) and
 re-run it. Publish a template to make it visible in `GET /v1/catalog`.
 
 ### 4. Onboard your own customers
 
-In **Designer → Customers**, create a customer (its `org_id`, tier/quota and
+In **SaaS Console → Customers**, create a customer (its `org_id`, tier/quota and
 branding). Saving auto-creates the per-customer Search index `kb-{org_id}`.
-Then assign templates and upload knowledge in **Designer → Instances** — uploaded
+Then assign templates and upload knowledge in **SaaS Console → Instances** — uploaded
 documents are chunked and embedded into the customer's index for RAG. If the
 template allows it, toggle **agentic retrieval** per instance (this provisions a
 Search knowledge source `ks-{org}` + knowledge base `kbagent-{org}`).
 
 ### 5. Track per-customer costs
 
-**Designer → Costs** shows the monthly Azure spend split per customer: the fixed
+**SaaS Console → Costs** shows the monthly Azure spend split per customer: the fixed
 shared platform plus variable AI usage (LLM chat tokens, embeddings, agentic
 planning). Switch the display currency (USD/EUR) and read the end-of-month
 projection. Prices live in `config/azure_prices.json` (and
@@ -434,14 +434,14 @@ cd backend && pip install -r requirements.txt
 $env:ALLOW_DEV_TOKENS = "true"   # enables POST /v1/auth/dev-token (dev only!)
 uvicorn app.main:app --reload --port 8000
 
-# Admin designer
+# Admin SaaS Console
 cd admin-designer && npm install && npm run dev   # http://localhost:5173
 
 # Customer webapp
 cd customer-webapp && npm install && npm run dev   # http://localhost:5174
 ```
 
-Sign in to the Designer:
+Sign in to the SaaS Console:
 
 - In the admin-designer header, click **“Demo admin login”** — it calls the
   backend `/v1/auth/dev-token` endpoint and stores the admin JWT in
@@ -469,7 +469,7 @@ The customer-webapp's demo switcher also calls `/v1/auth/dev-token` automaticall
 
 Each demo instance also ships **suggested questions** that appear as clickable
 chips on the customer-webapp welcome screen (configurable per instance in the
-Designer's *Assign template* form).
+SaaS Console's *Assign template* form).
 
 Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 *"What's included in a support contract?"* (NovaTech).
@@ -507,7 +507,7 @@ Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 | - | --------- | ----- |
 | 1 | `azd up` provisions with no public blob, MI, Key Vault, least-privilege RBAC, no plaintext secrets | `infra/` |
 | 2 | Scripts create 2 Foundry templates + 2 demo customers with instances & knowledge | `scripts/` |
-| 3 | Designer: view/create templates, onboard customer, assign instances, view metering & per-customer costs | `admin-designer/` |
+| 3 | SaaS Console: view/create templates, onboard customer, assign instances, view metering & per-customer costs | `admin-designer/` |
 | 4 | customer-webapp streams chat with the customer's agent using ITS knowledge (RAG / agentic retrieval); cross-tenant → 403 | `customer-webapp/`, `backend/app/middleware.py` |
 | 5 | This README with install + customization steps | here |
 
