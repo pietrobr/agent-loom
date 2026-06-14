@@ -1,7 +1,7 @@
 {
   "currency": "USD",
   "region": "swedencentral",
-  "updated": "2026-06-14T09:30:22.985171+00:00",
+  "updated": "2026-06-14T09:53:11.576514+00:00",
   "source": "Azure Retail Prices API",
   "models": {
     "gpt-4o-mini": {

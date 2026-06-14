@@ -31,8 +31,24 @@ from urllib.parse import urlencode
 from urllib.request import urlopen
 
 API = "https://prices.azure.com/api/retail/prices"
-OUT = Path(__file__).resolve().parents[1] / "config" / "azure_prices.json"
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "config"
+OUT = CONFIG_DIR / "azure_prices.json"
 HOURS_PER_MONTH = 730
+
+# Currencies to fetch. USD is written to azure_prices.json (the default the
+# backend reads); every other currency goes to azure_prices_<cur>.json.
+CURRENCIES = ["USD", "EUR"]
+
+# Rough USD→currency factors, used ONLY to convert the built-in fallbacks when
+# the retail API returns nothing for a non-USD currency (real list prices come
+# from the API and override these).
+FX_FALLBACK = {"USD": 1.0, "EUR": 0.92}
+
+
+def _out_path(currency: str) -> Path:
+    cur = currency.upper()
+    name = "azure_prices.json" if cur == "USD" else f"azure_prices_{cur.lower()}.json"
+    return CONFIG_DIR / name
 
 # Models the partner is likely to deploy. Keys are matched (case-insensitive,
 # substring) against the retail meter names. Built-in fallbacks are USD per 1K
@@ -61,9 +77,9 @@ SHARED_FALLBACKS_USD_PER_MONTH = {
 }
 
 
-def _get(filter_expr: str) -> list[dict]:
+def _get(filter_expr: str, currency: str = "USD") -> list[dict]:
     items: list[dict] = []
-    url = f"{API}?{urlencode({'$filter': filter_expr, 'currencyCode': 'USD'})}"
+    url = f"{API}?{urlencode({'$filter': filter_expr, 'currencyCode': currency.upper()})}"
     for _ in range(20):  # follow NextPageLink
         with urlopen(url, timeout=30) as resp:  # noqa: S310 (trusted Azure host)
             data = json.loads(resp.read().decode("utf-8"))
@@ -75,12 +91,14 @@ def _get(filter_expr: str) -> list[dict]:
     return items
 
 
-def fetch_models(region: str) -> dict:
+def fetch_models(region: str, currency: str = "USD") -> dict:
     out: dict[str, dict] = {}
+    fx = FX_FALLBACK.get(currency.upper(), 1.0)
     try:
         items = _get(
             "serviceName eq 'Cognitive Services' and "
-            f"armRegionName eq '{region}' and unitOfMeasure eq '1K'"
+            f"armRegionName eq '{region}' and unitOfMeasure eq '1K'",
+            currency,
         )
     except Exception as exc:  # pragma: no cover
         print(f"warning: model price fetch failed: {exc}", file=sys.stderr)
@@ -98,7 +116,7 @@ def fetch_models(region: str) -> dict:
             elif "outp" in meter or "output" in meter:
                 inp["output_per_1k"] = price
         for k, v in MODEL_FALLBACKS_USD_PER_1K[model].items():
-            inp.setdefault(k, v)
+            inp.setdefault(k, round(v * fx, 8))
     return out
 
 
@@ -118,15 +136,17 @@ def _monthly_from_daily(items: list[dict]) -> float | None:
     return round(daily * 30.0, 2) if daily else None
 
 
-def fetch_shared(region: str) -> dict:
+def fetch_shared(region: str, currency: str = "USD") -> dict:
     """Best-effort monthly price for each shared component, with fallbacks."""
-    shared = dict(SHARED_FALLBACKS_USD_PER_MONTH)
+    fx = FX_FALLBACK.get(currency.upper(), 1.0)
+    shared = {k: round(v * fx, 2) for k, v in SHARED_FALLBACKS_USD_PER_MONTH.items()}
 
     # Azure AI Search Standard S1 (hourly meter).
     try:
         items = _get(
             "serviceName eq 'Azure Cognitive Search' and "
-            f"armRegionName eq '{region}' and skuName eq 'Standard S1'"
+            f"armRegionName eq '{region}' and skuName eq 'Standard S1'",
+            currency,
         )
         m = _monthly_from_hourly(items)
         if m:
@@ -136,7 +156,9 @@ def fetch_shared(region: str) -> dict:
 
     # Azure Container Registry Standard (daily registry unit).
     try:
-        items = _get("serviceName eq 'Container Registry' and skuName eq 'Standard'")
+        items = _get(
+            "serviceName eq 'Container Registry' and skuName eq 'Standard'", currency
+        )
         m = _monthly_from_daily(items)
         if m:
             shared["container_registry"] = m
@@ -149,23 +171,30 @@ def fetch_shared(region: str) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--region", default="swedencentral")
+    ap.add_argument(
+        "--currencies",
+        default=",".join(CURRENCIES),
+        help="Comma-separated currency codes to fetch (default: USD,EUR).",
+    )
     args = ap.parse_args()
 
-    shared = fetch_shared(args.region)
-    payload = {
-        "currency": "USD",
-        "region": args.region,
-        "updated": datetime.now(timezone.utc).isoformat(),
-        "source": "Azure Retail Prices API",
-        "models": fetch_models(args.region),
-        # Kept for backwards compatibility; mirrors shared_infrastructure.ai_search.
-        "search": {"sku": "Standard S1", "unit_per_month": shared["ai_search"]},
-        "shared_infrastructure": shared,
-    }
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    print(f"wrote {OUT}")
-    print(f"shared infra monthly total ≈ ${sum(shared.values()):,.2f}")
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    for currency in [c.strip().upper() for c in args.currencies.split(",") if c.strip()]:
+        shared = fetch_shared(args.region, currency)
+        payload = {
+            "currency": currency,
+            "region": args.region,
+            "updated": datetime.now(timezone.utc).isoformat(),
+            "source": "Azure Retail Prices API",
+            "models": fetch_models(args.region, currency),
+            # Kept for backwards compatibility; mirrors shared_infrastructure.ai_search.
+            "search": {"sku": "Standard S1", "unit_per_month": shared["ai_search"]},
+            "shared_infrastructure": shared,
+        }
+        out = _out_path(currency)
+        out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(f"wrote {out}")
+        print(f"  {currency} shared infra monthly total ≈ {sum(shared.values()):,.2f}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,46 @@
+{
+  "currency": "EUR",
+  "region": "swedencentral",
+  "updated": "2026-06-14T09:53:13.477726+00:00",
+  "source": "Azure Retail Prices API",
+  "models": {
+    "gpt-4o-mini": {
+      "input_per_1k": 0.000138,
+      "output_per_1k": 0.000552
+    },
+    "gpt-4o": {
+      "input_per_1k": 0.0023,
+      "output_per_1k": 0.0092
+    },
+    "gpt-4.1-mini": {
+      "input_per_1k": 0.000368,
+      "output_per_1k": 0.001472
+    },
+    "gpt-4.1": {
+      "input_per_1k": 0.00184,
+      "output_per_1k": 0.00736
+    },
+    "o4-mini": {
+      "input_per_1k": 0.001012,
+      "output_per_1k": 0.004048
+    },
+    "text-embedding-3-small": {
+      "input_per_1k": 1.84e-05,
+      "output_per_1k": 0.0
+    }
+  },
+  "search": {
+    "sku": "Standard S1",
+    "unit_per_month": 210.97
+  },
+  "shared_infrastructure": {
+    "ai_search": 210.97,
+    "container_apps": 50.6,
+    "container_registry": 17.2,
+    "cosmos_db": 23.0,
+    "log_analytics": 11.04,
+    "storage": 2.76,
+    "key_vault": 0.92,
+    "ai_foundry_base": 0.0
+  }
+}

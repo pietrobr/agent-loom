@@ -222,7 +222,8 @@ export const api = {
   metering: (orgId: string) =>
     req<Metering>(`/v1/admin/customers/${orgId}/metering`),
 
-  costs: () => req<CostSummary>("/v1/admin/costs"),
+  costs: (currency?: string) =>
+    req<CostSummary>(`/v1/admin/costs${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),
 
   uploadKnowledge: async (
     orgId: string,

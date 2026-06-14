@@ -79,10 +79,20 @@ def customer_metering(org_id: str, _: Principal = Depends(require_admin)) -> Dic
 
 
 @router.get("/costs")
-def solution_costs(_: Principal = Depends(require_admin)) -> Dict[str, Any]:
+def solution_costs(
+    currency: str = "USD", _: Principal = Depends(require_admin)
+) -> Dict[str, Any]:
     """Total Azure cost of the solution, attributed per customer and per month
-    from recorded usage (tokens, calls) and shared Search index allocation."""
-    return cosmos.cost_summary()
+    from recorded usage (tokens, calls) and shared Search index allocation.
+
+    ``currency`` selects the price list (USD or EUR); unknown values fall back
+    to USD."""
+    from ..services import pricing
+
+    cur = (currency or "USD").upper()
+    if cur not in pricing.SUPPORTED_CURRENCIES:
+        cur = "USD"
+    return cosmos.cost_summary(cur)
 
 
 @router.post("/reindex")

@@ -265,7 +265,7 @@ def _active_days_in_month(periods: List[Dict[str, Any]], month: str, now: dateti
     return min(len(days), total_days)
 
 
-def cost_summary() -> Dict[str, Any]:
+def cost_summary(currency: str = "USD") -> Dict[str, Any]:
     """Attribute the total Azure cost of the solution across customers/months.
 
     Token cost is computed per metering event from the price of the instance's
@@ -339,7 +339,7 @@ def cost_summary() -> Dict[str, Any]:
         outp = int(e.get("output_tokens", 0) or 0)
         tot = int(e.get("total_tokens", 0) or 0) or (inp + outp)
         model = model_by_instance.get((org, e.get("instance_id")))
-        cost = pricing.token_cost(model, inp, outp)
+        cost = pricing.token_cost(model, inp, outp, currency)
 
         # Track the day this event happened (for legacy customers with no tenant
         # and no lifecycle record, e.g. deleted before lifecycle tracking).
@@ -393,15 +393,15 @@ def cost_summary() -> Dict[str, Any]:
             },
         )
         bucket["embedding_tokens"] += etok
-        bucket["embedding_cost"] += pricing.embedding_cost(etok)
+        bucket["embedding_cost"] += pricing.embedding_cost(etok, currency)
 
     # Document count per customer (current index size, used as a proxy weight).
     doc_count: Dict[str, int] = {}
     for org in {org for m in months.values() for org in m}:
         doc_count[org] = search_svc.document_count(org)
 
-    infra = pricing.shared_infrastructure()
-    infra_monthly = pricing.shared_monthly_total()
+    infra = pricing.shared_infrastructure(currency)
+    infra_monthly = pricing.shared_monthly_total(currency)
 
     # Weighted infra split. A client's share is a blend of its token usage, call
     # volume and indexed document count (each normalized within the month). This
@@ -485,7 +485,7 @@ def cost_summary() -> Dict[str, Any]:
         )
 
     return {
-        **pricing.meta(),
+        **pricing.meta(currency),
         "search_monthly": round(infra.get("ai_search", 0.0), 2),
         "infra_monthly": infra_monthly,
         "infra_breakdown": {k: round(v, 2) for k, v in infra.items()},

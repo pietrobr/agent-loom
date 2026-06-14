@@ -13,6 +13,8 @@ import {
   Badge,
   makeStyles,
   tokens,
+  Dropdown,
+  Option,
 } from "@fluentui/react-components";
 import { api, CostSummary, Tenant } from "../api";
 
@@ -92,22 +94,45 @@ const INFRA_LABELS: Record<string, string> = {
   ai_foundry_base: "AI Foundry (base)",
 };
 
+const CURRENCY_KEY = "agentloom.costCurrency";
+const CURRENCIES = ["USD", "EUR"];
+
 export function CostsPage() {
   const styles = useStyles();
   const [data, setData] = useState<CostSummary | null>(null);
   const [customers, setCustomers] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  // Currency choice is remembered across browser sessions.
+  const [costCurrency, setCostCurrency] = useState<string>(() => {
+    try {
+      return localStorage.getItem(CURRENCY_KEY) || "USD";
+    } catch {
+      return "USD";
+    }
+  });
 
   useEffect(() => {
     setLoading(true);
     api
-      .costs()
+      .costs(costCurrency)
       .then(setData)
       .catch((e) => setErr(e.message))
       .finally(() => setLoading(false));
+  }, [costCurrency]);
+
+  useEffect(() => {
     api.listCustomers().then(setCustomers).catch(() => {});
   }, []);
+
+  const changeCurrency = (c: string) => {
+    setCostCurrency(c);
+    try {
+      localStorage.setItem(CURRENCY_KEY, c);
+    } catch {
+      /* ignore storage failures (private mode) */
+    }
+  };
 
   // Lifecycle status per org for the badge under each client name. A client that
   // is no longer a tenant (deleted) is shown as Closed.
@@ -126,7 +151,7 @@ export function CostsPage() {
   const statusOf = (orgId: string) =>
     statusByOrg[orgId] || { label: "Closed", color: "danger" as const };
 
-  const currency = data?.currency || "USD";
+  const currency = data?.currency || costCurrency;
   const maxMonth = useMemo(
     () => Math.max(1, ...(data?.by_month || []).map((m) => m.total_cost)),
     [data]
@@ -180,6 +205,22 @@ export function CostsPage() {
             source: {data.source}
           </Text>
         )}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "8px" }}>
+          <Text size={200}>Currency</Text>
+          <Dropdown
+            aria-label="Display currency"
+            style={{ minWidth: "96px" }}
+            selectedOptions={[costCurrency]}
+            value={costCurrency}
+            onOptionSelect={(_, d) => d.optionValue && changeCurrency(d.optionValue)}
+          >
+            {CURRENCIES.map((c) => (
+              <Option key={c} value={c}>
+                {c}
+              </Option>
+            ))}
+          </Dropdown>
+        </div>
       </div>
 
       {loading && <Spinner label="Loading…" />}
