@@ -195,8 +195,11 @@ function Remove-AzureResources {
       throw "Refusing `azd down`: selected env '$envName' looks like test/dev."
     }
     Write-Host "  running 'azd down' on env '$envName'..." -ForegroundColor Cyan
-    $purgeArg = if ($NoPurge) { @() } else { @("--purge") }
-    azd down --force @purgeArg
+    if ($NoPurge) {
+      azd down --force
+    } else {
+      azd down --force --purge
+    }
     if ($LASTEXITCODE -ne 0) { throw "azd down failed (exit $LASTEXITCODE)" }
     Write-Host "  Azure resources of '$envName' removed." -ForegroundColor Green
   } finally {
