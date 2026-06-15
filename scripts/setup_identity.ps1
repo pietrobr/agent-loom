@@ -62,6 +62,21 @@ function Invoke-Graph {
 
 function Connect-Tenant {
   param([string]$Tenant)
+  # Reuse a cached sign-in for this tenant when one is available (no prompt).
+  # az caches refresh tokens per tenant, so we can silently mint a Graph token
+  # and switch the active CLI context to a subscription in that tenant; `az rest`
+  # (used by Invoke-Graph) then targets the right directory. Only fall back to an
+  # interactive `az login` when no cached session exists.
+  $tokJson = az account get-access-token --tenant $Tenant --resource https://graph.microsoft.com -o json 2>$null
+  if ($LASTEXITCODE -eq 0 -and $tokJson) {
+    $tid = ($tokJson | ConvertFrom-Json).tenant
+    $sub = az account list --all --query "[?tenantId=='$tid'] | [0].id" -o tsv 2>$null
+    if ($sub) {
+      az account set --subscription $sub 2>$null | Out-Null
+      Write-Host "`n=== Reusing cached sign-in for tenant: $Tenant ===" -ForegroundColor DarkGray
+      return
+    }
+  }
   Write-Host "`n=== Signing in to tenant: $Tenant ===" -ForegroundColor Cyan
   az login --tenant $Tenant --allow-no-subscriptions --only-show-errors | Out-Null
   if ($LASTEXITCODE -ne 0) { throw "az login failed for tenant $Tenant" }
