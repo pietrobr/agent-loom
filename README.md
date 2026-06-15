@@ -610,6 +610,36 @@ reaches the private Cosmos from inside the VNet — no firewall changes).
 
 Do **not** use B2B guest users in the provider tenant for customer identities.
 
+#### Tearing down production
+
+To remove the **production** deployment and its Entra identities, run the inverse
+of the setup — [scripts/teardown_prod.ps1](scripts/teardown_prod.ps1). It is
+production-only: a hard guard refuses to touch the `agentloom-dev` test
+environment. You sign in **once per tenant** at the start; the script then caches
+a Microsoft Graph token per tenant and switches between them on its own.
+
+```powershell
+./scripts/teardown_prod.ps1 `
+  -WorkforceTenant contoso-saas.onmicrosoft.com `
+  -CiamTenant      agentloomcustomers.onmicrosoft.com
+```
+
+It deletes, for production only:
+
+- **Azure** → the `agentloom-prod` env's resources via `azd down --force --purge`
+  (the `--purge` hard-deletes the soft-delete-protected Key Vault + Foundry so a
+  future redeploy can reuse the same names).
+- **Workforce tenant** → app registration *AgentLoom SaaS Console* (+ its SP).
+- **CIAM tenant** → app registrations *AgentLoom Customer* + *AgentLoom
+  Provisioning* (+ SPs), the demo test users (`demo-horizon` / `demo-novatech`)
+  and all `cust-*` security groups.
+
+Useful switches: `-KeepTestUsersAndGroups` (leave the demo users/groups),
+`-SkipAzure` / `-SkipIdentity`, `-NoPurge`, `-PurgeDeletedObjects` (also hard-
+delete the removed Entra objects from each tenant's recycle bin), `-Force` (skip
+the `DELETE` confirmation). Deleted directory objects otherwise stay recoverable
+in the tenant recycle bin for ~30 days.
+
 ---
 
 ## Local development
