@@ -102,21 +102,22 @@ class Settings(BaseSettings):
     ciam_issuer: str = ""
     ciam_jwks_uri: str = ""
 
-    # Claim names. org_id arrives as a custom/extension claim on the customer
-    # token; admins are recognised by an app role / roles claim value.
+    # Claim names. Admins are recognised by an app role / roles claim value.
+    # (org_id_claim is retained for the dev HS256 flow / back-compat; production
+    # customers are mapped via security groups below.)
     org_id_claim: str = "org_id"
     admin_role_value: str = "admin"
-    # When customers are mapped to tenants via security groups, their token
-    # carries the group object ids in this claim (Entra emits GUIDs). The backend
-    # resolves the org_id from the tenant whose group_id matches.
+    # Customers are mapped to tenants via security groups: their token carries the
+    # group object ids in this claim (Entra emits GUIDs). The backend resolves the
+    # org_id from the tenant whose group_id matches.
     groups_claim: str = "groups"
 
     # CIAM provisioning app (client-credentials) used by the backend to create /
     # delete the per-customer security group in the External ID tenant when a
     # customer is added/removed from the Admin Console. The client id is a plain
     # env var; the secret is read from Key Vault at runtime via the backend's
-    # managed identity (secret name below). Empty → group provisioning disabled
-    # (the app falls back to the org_id-claim model).
+    # managed identity (secret name below). This is required for the groups model
+    # in production (empty → the backend cannot provision customer groups).
     provisioning_client_id: str = ""
     provisioning_secret_name: str = "ciam-provisioning-secret"
     # Group naming: cust-<org_id> by default.

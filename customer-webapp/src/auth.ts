@@ -108,8 +108,8 @@ export async function signIn(): Promise<void> {
   }
   const pca = client();
   await pca.initialize();
-  // prompt:"select_account" forces the account picker so a different user can
-  // sign in (a local logout doesn't clear the IdP SSO session, which would
-  // otherwise silently sign the same user back in).
-  await pca.loginRedirect({ scopes: [API_SCOPE], prompt: "select_account" });
+  // prompt:"login" forces the user to re-enter credentials (and lets them pick a
+  // different account). A local logout doesn't clear the IdP SSO session, so
+  // without this the same user would be signed back in silently.
+  await pca.loginRedirect({ scopes: [API_SCOPE], prompt: "login" });
 }

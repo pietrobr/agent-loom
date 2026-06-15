@@ -7,7 +7,8 @@ Two modes, selected by ``AUTH_MODE``:
   * ``production`` — verify RS256 access tokens against the JWKS of the two
     Entra tenants: the provider **workforce** tenant (admins) and the customer
     **Entra External ID (CIAM)** tenant (end users). Admins are recognised by an
-    app-role claim; customers carry their ``org_id`` as a custom claim.
+    app-role claim; customers are mapped to their tenant via the ``groups``
+    claim (a per-customer security group, ``cust-<org_id>``).
 
 Either way the rest of the app only depends on the resulting ``Principal``
 (``org_id`` + ``roles``), so middleware, isolation and routers are unchanged.
@@ -51,17 +52,13 @@ def _roles_from_claim(payload: dict) -> List[str]:
 
 
 def _resolve_customer_org(payload: dict, settings: Settings) -> Optional[str]:
-    """Determine a customer's org_id from their token.
+    """Determine a customer's org_id from their token via the **groups** model.
 
-    Two supported models (the first that yields a value wins):
-      1. ``org_id`` claim — emitted directly (claims-mapping of a user attribute).
-      2. ``groups`` claim — Entra emits group object ids; map the one that
-         matches a tenant's ``group_id`` (per-customer security group model).
+    Entra External ID emits the user's security-group object ids in the
+    ``groups`` claim. Each customer has a dedicated ``cust-<org_id>`` group whose
+    object id is stored on the tenant (``group_id``); we resolve the org_id from
+    the tenant whose ``group_id`` matches one of the token's groups.
     """
-    direct = payload.get(settings.org_id_claim)
-    if direct:
-        return str(direct)
-
     groups = payload.get(settings.groups_claim) or []
     if isinstance(groups, str):
         groups = [groups]
@@ -114,7 +111,7 @@ def _verify_production(token: str, settings: Settings) -> Principal:
             if not org_id:
                 raise HTTPException(
                     status.HTTP_401_UNAUTHORIZED,
-                    "customer token is not mapped to any tenant",
+                    "customer token is not mapped to any tenant group",
                 )
             return Principal(
                 sub=str(payload.get("sub", "user")),

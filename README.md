@@ -112,8 +112,10 @@ endpoints.
 
 For the MVP, end-customer auth uses a signed JWT carrying the `org_id` claim. In
 production you front it with an **Entra External ID (CIAM)** tenant: every
-customer organization signs in through the same user flow, the token carries
-their `org_id`, and the **single** AgentLoom deployment keeps each organization
+customer organization signs in through the same user flow, and each customer is
+mapped to its `org_id` via a dedicated **security group** (`cust-<org_id>`) — the
+token carries the user's group membership, and the **single** AgentLoom
+deployment resolves the `org_id` from that group and keeps each organization
 fully isolated server-side — same code, same containers, separate data per
 `org_id`.
 
@@ -121,9 +123,9 @@ fully isolated server-side — same code, same containers, separate data per
 External ID (CIAM)**, while the provider's own staff sign in to the
 admin-designer via the provider's **corporate Entra ID (workforce) tenant** — an
 admin is an internal employee, *not* an External ID consumer. The front door
-accepts both: customer tokens (audience = customer app, must carry `org_id`) and
-admin tokens (audience = admin app, carry `roles` incl. `admin`, and `org_id`
-is ignored / set to `_system`).
+accepts both: customer tokens (audience = customer app, carry a `groups` claim
+that maps to a tenant) and admin tokens (audience = admin app, carry `roles`
+incl. `admin`, and `org_id` is set to `_system`).
 
 ```mermaid
 flowchart LR
@@ -144,7 +146,7 @@ flowchart LR
     subgraph CIAM["Microsoft Entra External ID (CIAM) tenant"]
       direction TB
       UF["Sign-up / sign-in<br/>user flow + app registration"]
-      CLAIM["org_id claim<br/>custom attribute / claims mapping"]
+      CLAIM["groups claim<br/>cust-&lt;org_id&gt; security group"]
       UF --- CLAIM
     end
 
@@ -164,7 +166,7 @@ flowchart LR
     UC --> UF
 
     ADAPP -- "admin token · roles=admin" --> AD
-    CLAIM -- "id/access token + org_id" --> FE
+    CLAIM -- "access token + groups" --> FE
     AD -- "admin JWT" --> API
     FE -- "Bearer JWT" --> API
     API -. "validate admin tokens via JWKS" .-> WF
@@ -460,25 +462,18 @@ membership) and different redirect URIs. The backend stays single: it accepts
 both issuers and reconciles on `org_id`/`roles`. Middleware, isolation and
 routers are unchanged regardless of issuer.
 
-#### Mapping a customer user to a tenant — two models
+#### Mapping a customer user to a tenant — the groups model
 
 A customer's token must tell the backend **which** customer (`org_id`) they
-belong to. Two models are supported, tried in this order:
+belong to. AgentLoom does this with **security groups**:
 
-1. **Security group** (recommended for operations). Each customer has a
-   `cust-<org_id>` **security group** in the CIAM tenant; users are simply added
-   to it. The token carries the group object ids in the `groups` claim, and the
-   backend maps the group → the tenant whose `group_id` matches. Adding/removing
-   a user is just group membership (portal or Graph). When you **create a
-   customer in the Admin Console**, the backend creates the group automatically
-   (and deletes it when the customer is removed) using a dedicated **provisioning
-   app** whose secret lives in Key Vault.
-2. **`org_id` claim** (simplest, single-user attribute). The `org_id` is set as a
-   directory-extension attribute on each user and emitted via a claims-mapping
-   policy. No cross-tenant credential needed, but each user is edited
-   individually.
-
-The backend reads whichever it finds, so both can coexist.
+Each customer has a `cust-<org_id>` **security group** in the CIAM tenant; users
+are simply added to it. The token carries the group object ids in the `groups`
+claim, and the backend maps the group → the tenant whose `group_id` matches.
+Adding/removing a user is just group membership (portal or Graph). When you
+**create a customer in the Admin Console**, the backend creates the group
+automatically (and deletes it when the customer is removed) using a dedicated
+**provisioning app** whose secret lives in Key Vault.
 
 #### Step 1 — Provision the identities (one-time, both tenants)
 
@@ -502,12 +497,11 @@ What it creates:
   `isFallbackPublicClient=true` (enables device-code seeding), an **`admin` app
   role** assigned to `-AdminUpn`.
 - **CIAM tenant** → app registration **"AgentLoom Customer"** with: exposed API
-  scope, **v2 access tokens** + `acceptMappedClaims=true`,
-  `groupMembershipClaims=SecurityGroup` (so tokens carry the user's groups), an
-  **`org_id` directory extension** + **claims-mapping policy** (the org_id-claim
-  fallback model). With `-SeedTestUsers`, two users (demo-horizon / demo-novatech)
-  **plus** their `cust-horizon-travel` / `cust-novatech` security groups, with the
-  users added as members. The generated password is printed once — save it.
+  scope, **v2 access tokens**, and `groupMembershipClaims=SecurityGroup` (so
+  tokens carry the user's security-group object ids in the `groups` claim). With
+  `-SeedTestUsers`, two users (demo-horizon / demo-novatech) **plus** their
+  `cust-horizon-travel` / `cust-novatech` security groups, with the users added
+  as members. The generated password is printed once — save it.
 - **CIAM tenant** → app registration **"AgentLoom Provisioning"** (client-
   credentials) with Microsoft Graph **`Group.ReadWrite.All`** (application) +
   admin consent, and a **client secret**. The backend uses it to create/delete
@@ -532,8 +526,7 @@ azd env set AZURE_LOCATION swedencentral
 | Auth mode | `AUTH_MODE production` | Disables dev tokens + demo switcher |
 | Workforce tenant | `WORKFORCE_TENANT_ID`, `WORKFORCE_AUDIENCE` | Admin app reg client id = audience |
 | CIAM tenant | `CIAM_TENANT_ID`, `CIAM_SUBDOMAIN`, `CIAM_AUDIENCE` | Customer app reg client id = audience |
-| Claim name | `ORG_ID_CLAIM` | `org_id` (emitted by the claims-mapping policy) |
-| Group provisioning | `PROVISIONING_CLIENT_ID` | CIAM provisioning app client id (enables auto-creating per-customer groups) |
+| Group provisioning | `PROVISIONING_CLIENT_ID` | CIAM provisioning app client id (creates per-customer `cust-<org_id>` groups) |
 | Admin SPA | `VITE_ADMIN_CLIENT_ID/AUTHORITY/API_SCOPE` | workforce authority (`login.microsoftonline.com/<tid>`) |
 | Customer SPA | `VITE_CUSTOMER_CLIENT_ID/AUTHORITY/API_SCOPE` | CIAM authority (`<tid>.ciamlogin.com/<tid>`) |
 
@@ -562,10 +555,11 @@ az keyvault secret set --vault-name $kv --name ciam-provisioning-secret --value 
 ```
 
 The backend reads it at runtime via its **managed identity** (already granted
-*Key Vault Secrets User*) — the secret never leaves Key Vault. If
-`PROVISIONING_CLIENT_ID` is empty, group provisioning is simply disabled and the
-app falls back to the `org_id`-claim model. Rotate the secret by setting a new
-version in Key Vault and updating the app registration.
+*Key Vault Secrets User*) — the secret never leaves Key Vault. `PROVISIONING_CLIENT_ID`
++ this secret are **required** for the groups model: without them the backend
+cannot create the per-customer `cust-<org_id>` groups when you onboard a customer.
+Rotate the secret by setting a new version in Key Vault and updating the app
+registration.
 
 #### Step 4 — Add the deployed redirect URIs
 
@@ -611,8 +605,7 @@ reaches the private Cosmos from inside the VNet — no firewall changes).
 | `AADSTS7000218` on device-code seed | admin app isn't a public client | `isFallbackPublicClient=true` on the admin app |
 | Backend 401, log `issuer not recognised: https://sts.windows.net/…` | app emits **v1** tokens | `api.requestedAccessTokenVersion=2` on both apps |
 | Backend 401, log `issuer not recognised: https://<sub>.ciamlogin.com/…` | CIAM issuer uses the **tenant GUID** as subdomain | backend derives `https://<tid>.ciamlogin.com/<tid>/v2.0` |
-| Backend 401, `missing org_id claim` (token has no `org_id`) | External ID doesn't emit directory extensions as claims | **claims-mapping policy** maps the extension → `org_id`, `acceptMappedClaims=true`, `ORG_ID_CLAIM=org_id` |
-| Customer 403 although in a group | token's `groups` GUID doesn't match any tenant's `group_id` | ensure the customer was created **in the Console** (which stores `group_id`), or set it; `groupMembershipClaims=SecurityGroup` on the customer app |
+| Customer 401, `token is not mapped to any tenant group` | token's `groups` GUID doesn't match any tenant's `group_id` | ensure the customer was created **in the Console** (which stores `group_id`) and the user is a member of `cust-<org_id>`; `groupMembershipClaims=SecurityGroup` on the customer app |
 | New customer's group not auto-created | provisioning app/secret missing | set `PROVISIONING_CLIENT_ID` + store the secret in Key Vault (Step 3b) |
 
 Do **not** use B2B guest users in the provider tenant for customer identities.

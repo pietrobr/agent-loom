@@ -97,9 +97,9 @@ export async function signIn(): Promise<void> {
   }
   const pca = client();
   await pca.initialize();
-  // prompt:"select_account" forces the account picker so a different user can
-  // sign in (a local logout doesn't clear the IdP SSO session).
-  await pca.loginRedirect({ scopes: [API_SCOPE], prompt: "select_account" });
+  // prompt:"login" forces the user to re-enter credentials (and lets them pick a
+  // different account); a local logout doesn't clear the IdP SSO session.
+  await pca.loginRedirect({ scopes: [API_SCOPE], prompt: "login" });
 }
 
 /** The signed-in user's display name + username (email), when MSAL is active. */

@@ -13,8 +13,10 @@
     * Customer Entra External ID / CIAM tenant  e.g. agentloomcustomers.onmicrosoft.com
         - "AgentLoom Customer" SPA app registration
         - exposed API scope  api://<appId>/access_as_user
-        - directory extension "org_id" on the customer app (emitted as a claim)
-        - (optional, -SeedTestUsers) two test users carrying org_id
+        - security-group membership claims on the customer app (the groups model:
+          each customer = a cust-<org_id> group; the backend maps group -> org_id)
+        - "AgentLoom Provisioning" app the backend uses to create those groups
+        - (optional, -SeedTestUsers) two test users + their cust-<org> groups
 
   It prints the `azd env set ...` lines to wire the backend + SPAs.
 
@@ -170,7 +172,7 @@ if ($adminUser) {
 }
 
 # --------------------------------------------------------------------------- #
-# 2) CIAM tenant — customer SPA + org_id directory extension                   #
+# 2) CIAM tenant — customer SPA + security-group membership claims              #
 # --------------------------------------------------------------------------- #
 Connect-Tenant $CiamTenant
 $ciamTenantId = (az account show --query tenantId -o tsv)
@@ -180,60 +182,15 @@ $custApp = Get-OrCreateApp -DisplayName $CustomerAppName -RedirectUris $Customer
 Ensure-ApiScope -App $custApp
 $custSp = Ensure-ServicePrincipal -AppId $custApp.appId
 
-# Register the org_id directory extension on the customer app. Claim name is
-# extension_<appIdNoHyphens>_org_id.
-$extName = "org_id"
-$exts = Invoke-Graph GET "$graph/applications/$($custApp.id)/extensionProperties"
-$orgExt = $exts.value | Where-Object { $_.name -like "*_org_id" } | Select-Object -First 1
-if (-not $orgExt) {
-  $orgExt = Invoke-Graph POST "$graph/applications/$($custApp.id)/extensionProperties" @{
-    name = $extName; dataType = "String"; targetObjects = @("User")
-  }
-  Write-Host "  created directory extension '$($orgExt.name)'" -ForegroundColor Green
-} else {
-  Write-Host "  directory extension '$($orgExt.name)' already exists"
-}
-$orgIdClaim = $orgExt.name
-
-# In Entra External ID (CIAM) a directory-extension optional claim is NOT
-# emitted on access tokens by itself. Instead we map it with a claims-mapping
-# policy that emits it as a simple 'org_id' claim, and let the app accept it.
-#   1) acceptMappedClaims=true + v2 tokens on the customer app
-#   2) a claimsMappingPolicy mapping the extension (ExtensionID) -> 'org_id'
-#   3) assign the policy to the customer app's service principal
-$extClaimName = $orgExt.name        # directory extension name (set on users)
-$emittedClaim = "org_id"            # claim name the policy emits in the token
+# Customers are mapped to tenants via the **groups** model: each customer has a
+# dedicated security group (cust-<org_id>) and the backend resolves the org_id
+# from the group object id emitted on the access token. We only need v2 tokens
+# and group-membership claims on the customer app — no directory extension or
+# claims-mapping policy.
 Invoke-Graph PATCH "$graph/applications/$($custApp.id)" @{
-  api = @{ requestedAccessTokenVersion = 2; acceptMappedClaims = $true }
+  api = @{ requestedAccessTokenVersion = 2 }
 } | Out-Null
-Write-Host "  set acceptMappedClaims=true + v2 tokens on the customer app"
-
-$policyDef = '{"ClaimsMappingPolicy":{"Version":1,"IncludeBasicClaimSet":"true","ClaimsSchema":[{"Source":"User","ExtensionID":"' + $extClaimName + '","JwtClaimType":"' + $emittedClaim + '"}]}}'
-$existingPolicies = Invoke-Graph GET "$graph/policies/claimsMappingPolicies"
-$policy = $existingPolicies.value | Where-Object { $_.displayName -eq "AgentLoom org_id" } | Select-Object -First 1
-if (-not $policy) {
-  $policy = Invoke-Graph POST "$graph/policies/claimsMappingPolicies" @{
-    definition = @($policyDef); displayName = "AgentLoom org_id"; isOrganizationDefault = $false
-  }
-  Write-Host "  created claims-mapping policy 'AgentLoom org_id'" -ForegroundColor Green
-} else {
-  Invoke-Graph PATCH "$graph/policies/claimsMappingPolicies/$($policy.id)" @{ definition = @($policyDef) } | Out-Null
-  Write-Host "  claims-mapping policy 'AgentLoom org_id' already exists (updated)"
-}
-
-# Assign the policy to the customer SP (idempotent).
-$assigned = Invoke-Graph GET "$graph/servicePrincipals/$($custSp.id)/claimsMappingPolicies"
-$already = $assigned.value | Where-Object { $_.id -eq $policy.id }
-if (-not $already) {
-  Invoke-Graph POST "$graph/servicePrincipals/$($custSp.id)/claimsMappingPolicies/`$ref" @{
-    '@odata.id' = "https://graph.microsoft.com/v1.0/policies/claimsMappingPolicies/$($policy.id)"
-  } | Out-Null
-  Write-Host "  assigned claims-mapping policy to the customer app" -ForegroundColor Green
-} else {
-  Write-Host "  claims-mapping policy already assigned to the customer app"
-}
-# The token carries the simple 'org_id' claim; users hold the extension value.
-$orgIdClaim = $emittedClaim
+Write-Host "  set requestedAccessTokenVersion=2 on the customer app"
 
 # Emit security-group membership on the customer access token (the groups model:
 # the backend maps a group object id -> org_id). GUIDs are emitted, not names.
@@ -309,15 +266,13 @@ if ($SeedTestUsers) {
       userPrincipalName = $upn
       passwordProfile   = @{ password = $TestUserPassword; forceChangePasswordNextSignIn = $false }
     }
-    $body[$extClaimName] = $u.org
     if ($existing) {
-      Invoke-Graph PATCH "$graph/users/$($existing.id)" @{ ($extClaimName) = $u.org } | Out-Null
       $userId = $existing.id
-      Write-Host "  test user '$upn' exists — set org_id=$($u.org)"
+      Write-Host "  test user '$upn' exists (org=$($u.org))"
     } else {
       $created = Invoke-Graph POST "$graph/users" $body
       $userId = $created.id
-      Write-Host "  created test user '$upn' (org_id=$($u.org))" -ForegroundColor Green
+      Write-Host "  created test user '$upn' (org=$($u.org))" -ForegroundColor Green
     }
 
     # Per-customer security group cust-<org> (groups model). Idempotent: reuse by
@@ -332,7 +287,7 @@ if ($SeedTestUsers) {
         mailEnabled     = $false
         mailNickname    = $gname
         securityEnabled = $true
-        description     = "AgentLoom customer group for org_id=$($u.org)"
+        description     = "AgentLoom customer group for org=$($u.org)"
       }
       $groupId = $grp.id
       Write-Host "  created group '$gname' ($groupId)" -ForegroundColor Green
@@ -358,7 +313,6 @@ azd env set WORKFORCE_AUDIENCE  $($adminApp.appId)
 azd env set CIAM_TENANT_ID      $ciamTenantId
 azd env set CIAM_SUBDOMAIN      $ciamSubdomain
 azd env set CIAM_AUDIENCE       $($custApp.appId)
-azd env set ORG_ID_CLAIM        $orgIdClaim
 azd env set PROVISIONING_CLIENT_ID $($provApp.appId)
 
 # Frontends (MSAL):
