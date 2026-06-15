@@ -36,7 +36,8 @@ param(
   [string[]] $AdminRedirectUris    = @("http://localhost:5173"),
   [string[]] $CustomerRedirectUris = @("http://localhost:5174"),
   [switch] $SeedTestUsers,
-  [string] $TestUserPassword                                        # required when -SeedTestUsers; otherwise a random one is generated
+  [string] $TestUserPassword,                                       # required when -SeedTestUsers; otherwise a random one is generated
+  [string] $ProvisioningAppName = "AgentLoom Provisioning"          # CIAM app the backend uses to create per-customer groups
 )
 
 $ErrorActionPreference = "Stop"
@@ -234,6 +235,58 @@ if (-not $already) {
 # The token carries the simple 'org_id' claim; users hold the extension value.
 $orgIdClaim = $emittedClaim
 
+# Emit security-group membership on the customer access token (the groups model:
+# the backend maps a group object id -> org_id). GUIDs are emitted, not names.
+Invoke-Graph PATCH "$graph/applications/$($custApp.id)" @{ groupMembershipClaims = "SecurityGroup" } | Out-Null
+Write-Host "  set groupMembershipClaims=SecurityGroup on the customer app"
+
+# --------------------------------------------------------------------------- #
+# 2b) CIAM provisioning app (client-credentials) — backend creates groups      #
+# --------------------------------------------------------------------------- #
+# The backend uses this app to create/delete the per-customer security group in
+# the CIAM tenant when a customer is added/removed in the Admin Console. It needs
+# the Microsoft Graph application permission Group.ReadWrite.All + admin consent,
+# and a client secret (stored in Key Vault; printed below).
+$graphAppId = "00000003-0000-0000-c000-000000000000"          # Microsoft Graph
+$groupRwAllId = "62a82d76-70ea-41e2-9197-370581804d09"        # Group.ReadWrite.All (Application)
+
+$provApp = Invoke-Graph GET "$graph/applications?`$filter=displayName eq '$ProvisioningAppName'"
+if ($provApp -and $provApp.value.Count -gt 0) {
+  $provApp = $provApp.value[0]
+  Write-Host "  provisioning app '$ProvisioningAppName' already exists (appId $($provApp.appId))"
+} else {
+  $provApp = Invoke-Graph POST "$graph/applications" @{
+    displayName            = $ProvisioningAppName
+    signInAudience         = "AzureADMyOrg"
+    requiredResourceAccess = @(@{
+      resourceAppId  = $graphAppId
+      resourceAccess = @(@{ id = $groupRwAllId; type = "Role" })
+    })
+  }
+  Write-Host "  created provisioning app '$ProvisioningAppName' (appId $($provApp.appId))" -ForegroundColor Green
+}
+$provSp = Ensure-ServicePrincipal -AppId $provApp.appId
+
+# Grant + admin-consent Group.ReadWrite.All to the provisioning SP (idempotent).
+$graphSp = (Invoke-Graph GET "$graph/servicePrincipals?`$filter=appId eq '$graphAppId'").value[0]
+$existingGrants = Invoke-Graph GET "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments"
+$hasGrant = $existingGrants.value | Where-Object { $_.appRoleId -eq $groupRwAllId -and $_.resourceId -eq $graphSp.id }
+if (-not $hasGrant) {
+  Invoke-Graph POST "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments" @{
+    principalId = $provSp.id; resourceId = $graphSp.id; appRoleId = $groupRwAllId
+  } | Out-Null
+  Write-Host "  granted + consented Group.ReadWrite.All to the provisioning app" -ForegroundColor Green
+} else {
+  Write-Host "  Group.ReadWrite.All already granted to the provisioning app"
+}
+
+# Create a fresh client secret (printed once; store it in Key Vault).
+$secretResp = Invoke-Graph POST "$graph/applications/$($provApp.id)/addPassword" @{
+  passwordCredential = @{ displayName = "agentloom-backend"; endDateTime = (Get-Date).AddYears(1).ToString("o") }
+}
+$provSecret = $secretResp.secretText
+Write-Host "  created provisioning client secret (shown once below)" -ForegroundColor Green
+
 # --------------------------------------------------------------------------- #
 # 3) (optional) test users in the CIAM tenant                                  #
 # --------------------------------------------------------------------------- #
@@ -259,11 +312,36 @@ if ($SeedTestUsers) {
     $body[$extClaimName] = $u.org
     if ($existing) {
       Invoke-Graph PATCH "$graph/users/$($existing.id)" @{ ($extClaimName) = $u.org } | Out-Null
+      $userId = $existing.id
       Write-Host "  test user '$upn' exists — set org_id=$($u.org)"
     } else {
-      Invoke-Graph POST "$graph/users" $body | Out-Null
+      $created = Invoke-Graph POST "$graph/users" $body
+      $userId = $created.id
       Write-Host "  created test user '$upn' (org_id=$($u.org))" -ForegroundColor Green
     }
+
+    # Per-customer security group cust-<org> (groups model). Idempotent: reuse by
+    # mailNickname. The backend reuses the same group when the customer is seeded.
+    $gname = "cust-$($u.org)"
+    $grp = Invoke-Graph GET "$graph/groups?`$filter=mailNickname eq '$gname'"
+    if ($grp -and $grp.value.Count -gt 0) {
+      $groupId = $grp.value[0].id
+    } else {
+      $grp = Invoke-Graph POST "$graph/groups" @{
+        displayName     = "$($u.display) ($($u.org))"
+        mailEnabled     = $false
+        mailNickname    = $gname
+        securityEnabled = $true
+        description     = "AgentLoom customer group for org_id=$($u.org)"
+      }
+      $groupId = $grp.id
+      Write-Host "  created group '$gname' ($groupId)" -ForegroundColor Green
+    }
+    # Add the user to the group (ignore 'already a member').
+    Invoke-Graph POST "$graph/groups/$groupId/members/`$ref" @{
+      '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$userId"
+    } | Out-Null
+    Write-Host "  ensured '$upn' is a member of '$gname'"
   }
 }
 
@@ -281,6 +359,7 @@ azd env set CIAM_TENANT_ID      $ciamTenantId
 azd env set CIAM_SUBDOMAIN      $ciamSubdomain
 azd env set CIAM_AUDIENCE       $($custApp.appId)
 azd env set ORG_ID_CLAIM        $orgIdClaim
+azd env set PROVISIONING_CLIENT_ID $($provApp.appId)
 
 # Frontends (MSAL):
 azd env set VITE_ADMIN_CLIENT_ID    $($adminApp.appId)
@@ -290,6 +369,16 @@ azd env set VITE_CUSTOMER_CLIENT_ID $($custApp.appId)
 azd env set VITE_CUSTOMER_AUTHORITY https://$ciamSubdomain.ciamlogin.com/$ciamTenantId
 azd env set VITE_CUSTOMER_API_SCOPE api://$($custApp.appId)/access_as_user
 "@ | Write-Host
+
+Write-Host "`n--- CIAM provisioning secret (store in Key Vault AFTER azd up) ----------" -ForegroundColor Yellow
+Write-Host "  Provisioning appId: $($provApp.appId)"
+Write-Host "  Client secret     : $provSecret"
+Write-Host "  Once the Key Vault exists (after 'azd up'), store it as the secret"
+Write-Host "  name the backend expects (default 'ciam-provisioning-secret'):"
+Write-Host ""
+Write-Host "    az keyvault secret set --vault-name <kv-name> ``"
+Write-Host "      --name ciam-provisioning-secret --value `"$provSecret`""
+Write-Host "  (kv-name = azd env get-value KEYVAULT_URI → the host label, e.g. agentloomagentloom-prodk)"
 
 Write-Host "`nNOTE: after `azd up`, add the deployed SPA URLs as SPA redirect URIs" -ForegroundColor Yellow
 Write-Host "      on both app registrations (admin → ADMIN_URL, customer → CUSTOMER_URL)." -ForegroundColor Yellow

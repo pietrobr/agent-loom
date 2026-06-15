@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
 from ..security import Principal, require_admin
-from ..services import agentic, blob, cosmos, foundry, search
+from ..services import agentic, blob, cosmos, foundry, search, ciam_groups
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 log = logging.getLogger(__name__)
@@ -66,6 +66,14 @@ def upsert_customer(payload: Dict[str, Any], _: Principal = Depends(require_admi
     tenant = Tenant(**payload)
     # Always provision the per-customer Search index.
     tenant.search_index = search.ensure_index(tenant.org_id)
+    # In the groups model (production), ensure the customer's CIAM security
+    # group exists and remember its id so customer tokens resolve to this org.
+    existing = cosmos.get_tenant(tenant.org_id)
+    tenant.group_id = (existing or {}).get("group_id", "") or tenant.group_id
+    if not tenant.group_id:
+        gid = ciam_groups.ensure_group(tenant.org_id, tenant.name)
+        if gid:
+            tenant.group_id = gid
     saved = cosmos.save_tenant(tenant.model_dump())
     # Track lifecycle: an enabled customer has an open active period; a disabled
     # one is closed. This drives per-month active-days proration in the cost view.
@@ -154,9 +162,12 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
     search.delete_index(org_id)
     # Tear down any agentic-retrieval knowledge base + source for this customer.
     agentic.delete_resources(org_id)
+    # Remove the per-customer CIAM security group (groups model), if any.
+    tenant = cosmos.get_tenant(org_id)
+    if tenant and tenant.get("group_id"):
+        ciam_groups.delete_group(tenant["group_id"])
     # Close the active period before removing the tenant; the lifecycle record
     # lives in the metering partition and survives the deletion.
-    tenant = cosmos.get_tenant(org_id)
     cosmos.record_lifecycle(org_id, (tenant or {}).get("name", org_id), active=False)
     cosmos.delete("tenants", org_id, org_id)
     return {"status": "deleted", "org_id": org_id}

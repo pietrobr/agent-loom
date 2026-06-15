@@ -106,10 +106,34 @@ class Settings(BaseSettings):
     # token; admins are recognised by an app role / roles claim value.
     org_id_claim: str = "org_id"
     admin_role_value: str = "admin"
+    # When customers are mapped to tenants via security groups, their token
+    # carries the group object ids in this claim (Entra emits GUIDs). The backend
+    # resolves the org_id from the tenant whose group_id matches.
+    groups_claim: str = "groups"
+
+    # CIAM provisioning app (client-credentials) used by the backend to create /
+    # delete the per-customer security group in the External ID tenant when a
+    # customer is added/removed from the Admin Console. The client id is a plain
+    # env var; the secret is read from Key Vault at runtime via the backend's
+    # managed identity (secret name below). Empty → group provisioning disabled
+    # (the app falls back to the org_id-claim model).
+    provisioning_client_id: str = ""
+    provisioning_secret_name: str = "ciam-provisioning-secret"
+    # Group naming: cust-<org_id> by default.
+    group_name_prefix: str = "cust-"
 
     @property
     def is_production_auth(self) -> bool:
         return self.auth_mode.strip().lower() in ("production", "prod")
+
+    @property
+    def group_provisioning_enabled(self) -> bool:
+        return bool(
+            self.is_production_auth
+            and self.provisioning_client_id
+            and self.ciam_tenant_id
+            and self.keyvault_uri
+        )
 
     @property
     def workforce_oidc_issuer(self) -> str:

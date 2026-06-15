@@ -65,6 +65,10 @@ class Tenant(BaseModel):
     monthly_token_quota: int = 1_000_000
     branding: Branding = Field(default_factory=Branding)
     search_index: str = ""
+    # Object id of the per-customer security group in the CIAM tenant (when
+    # customers are mapped to tenants by group membership). Empty in the
+    # org_id-claim model.
+    group_id: str = ""
     created_at: str = Field(default_factory=_now)
 
 

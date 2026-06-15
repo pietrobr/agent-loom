@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.28.1.47646",
-      "templateHash": "14062457747492254793"
+      "templateHash": "1975851084327289813"
     }
   },
   "parameters": {
@@ -135,7 +135,21 @@
       "type": "string",
       "defaultValue": "org_id",
       "metadata": {
-        "description": "org_id claim name emitted on customer tokens (extension_..._org_id)."
+        "description": "org_id claim name emitted on customer tokens (claims-mapping policy emits \"org_id\")."
+      }
+    },
+    "provisioningClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "CIAM provisioning app (client-credentials) used by the backend to create per-customer groups. Empty disables group provisioning."
+      }
+    },
+    "provisioningSecretName": {
+      "type": "string",
+      "defaultValue": "ciam-provisioning-secret",
+      "metadata": {
+        "description": "Key Vault secret name holding the CIAM provisioning app secret."
       }
     },
     "adminClientId": {
@@ -1983,6 +1997,14 @@
               {
                 "name": "ORG_ID_CLAIM",
                 "value": "[parameters('orgIdClaim')]"
+              },
+              {
+                "name": "PROVISIONING_CLIENT_ID",
+                "value": "[parameters('provisioningClientId')]"
+              },
+              {
+                "name": "PROVISIONING_SECRET_NAME",
+                "value": "[parameters('provisioningSecretName')]"
               }
             ]
           }

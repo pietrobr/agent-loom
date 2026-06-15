@@ -62,6 +62,11 @@ param ciamAudience string = ''
 @description('org_id claim name emitted on customer tokens (claims-mapping policy emits "org_id").')
 param orgIdClaim string = 'org_id'
 
+@description('CIAM provisioning app (client-credentials) used by the backend to create per-customer groups. Empty disables group provisioning.')
+param provisioningClientId string = ''
+@description('Key Vault secret name holding the CIAM provisioning app secret.')
+param provisioningSecretName string = 'ciam-provisioning-secret'
+
 @description('Admin SPA: MSAL client id / authority / API scope (workforce).')
 param adminClientId string = ''
 param adminAuthority string = ''
@@ -309,6 +314,8 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'CIAM_SUBDOMAIN', value: ciamSubdomain }
       { name: 'CIAM_AUDIENCE', value: ciamAudience }
       { name: 'ORG_ID_CLAIM', value: orgIdClaim }
+      { name: 'PROVISIONING_CLIENT_ID', value: provisioningClientId }
+      { name: 'PROVISIONING_SECRET_NAME', value: provisioningSecretName }
     ]
   }
 }

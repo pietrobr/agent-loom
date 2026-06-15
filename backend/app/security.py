@@ -50,6 +50,31 @@ def _roles_from_claim(payload: dict) -> List[str]:
     return list(roles)
 
 
+def _resolve_customer_org(payload: dict, settings: Settings) -> Optional[str]:
+    """Determine a customer's org_id from their token.
+
+    Two supported models (the first that yields a value wins):
+      1. ``org_id`` claim — emitted directly (claims-mapping of a user attribute).
+      2. ``groups`` claim — Entra emits group object ids; map the one that
+         matches a tenant's ``group_id`` (per-customer security group model).
+    """
+    direct = payload.get(settings.org_id_claim)
+    if direct:
+        return str(direct)
+
+    groups = payload.get(settings.groups_claim) or []
+    if isinstance(groups, str):
+        groups = [groups]
+    # Import here to avoid any import-time cycle.
+    from .services import cosmos
+
+    for gid in groups:
+        tenant = cosmos.get_tenant_by_group(str(gid))
+        if tenant:
+            return tenant.get("org_id")
+    return None
+
+
 def _verify_production(token: str, settings: Settings) -> Principal:
     """Verify an Entra access token (workforce admin OR CIAM customer)."""
     iss = jwks_mod.unverified_issuer(token)
@@ -85,11 +110,11 @@ def _verify_production(token: str, settings: Settings) -> Principal:
                 issuer=ciam_iss,
                 audience=settings.ciam_audience,
             )
-            org_id = payload.get(settings.org_id_claim)
+            org_id = _resolve_customer_org(payload, settings)
             if not org_id:
                 raise HTTPException(
                     status.HTTP_401_UNAUTHORIZED,
-                    f"missing '{settings.org_id_claim}' claim on customer token",
+                    "customer token is not mapped to any tenant",
                 )
             return Principal(
                 sub=str(payload.get("sub", "user")),

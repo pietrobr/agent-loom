@@ -114,6 +114,16 @@ def get_tenant(org_id: str) -> Optional[Dict[str, Any]]:
     return read("tenants", org_id, org_id)
 
 
+def get_tenant_by_group(group_id: str) -> Optional[Dict[str, Any]]:
+    """Find the tenant mapped to a CIAM security group object id (groups model)."""
+    if not group_id:
+        return None
+    for t in list_tenants():
+        if t.get("group_id") == group_id:
+            return t
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Tenant lifecycle (active periods) — survives tenant deletion                #
 # --------------------------------------------------------------------------- #
