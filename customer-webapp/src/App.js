@@ -120,6 +120,12 @@ export function App() {
     const [lastUsage, setLastUsage] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const chatRef = useRef(null);
+    // Keep the browser tab title in sync with the selected customer's brand.
+    useEffect(() => {
+        if (branding?.product_name) {
+            document.title = `${branding.product_name} — Customer App`;
+        }
+    }, [branding?.product_name]);
     // Sign in (dev) + load branding whenever the customer changes.
     async function selectCustomer(c) {
         setErr("");

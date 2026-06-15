@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   Tab,
@@ -49,6 +50,11 @@ export function App() {
   const branding = useBranding();
   const loc = useLocation();
   const navigate = useNavigate();
+
+  // Keep the browser tab title in sync with the configured brand.
+  useEffect(() => {
+    document.title = `${branding.PRODUCT_NAME} · SaaS Admin Console`;
+  }, [branding.PRODUCT_NAME]);
 
   const tabValue = loc.pathname.startsWith("/customers")
     ? "/customers"
