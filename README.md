@@ -544,8 +544,8 @@ must not run inside `azd up`) and prints the manual seed command instead.
 
 #### Step 3b — Store the provisioning secret in Key Vault
 
-If you use the **security-group model**, the backend needs the *AgentLoom
-Provisioning* app's secret to create/delete per-customer groups. The script
+The backend needs the *AgentLoom Provisioning* app's secret to create/delete the
+per-customer `cust-<org_id>` security groups (the groups model). The script
 printed it once; store it in the deployment's Key Vault under the name the
 backend expects (`PROVISIONING_SECRET_NAME`, default `ciam-provisioning-secret`):
 
@@ -595,8 +595,8 @@ reaches the private Cosmos from inside the VNet — no firewall changes).
 - **SaaS Admin Console** (`ADMIN_URL`) → redirects to the workforce sign-in; sign
   in as the admin (holds the `admin` app role).
 
-> First sign-in after changing claims requires a fresh token — if a customer
-> was already signed in, clear the MSAL cache (or use a private window).
+> First sign-in after a group-membership change requires a fresh token — if a
+> customer was already signed in, clear the MSAL cache (or use a private window).
 
 #### Troubleshooting (gotchas we hit and how they're solved)
 
