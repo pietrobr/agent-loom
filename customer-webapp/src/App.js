@@ -1,10 +1,11 @@
-import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useRef, useState } from "react";
 import { Button, Textarea, Text, Dropdown, Option, Spinner, Badge, makeStyles, tokens, Avatar, MessageBar, } from "@fluentui/react-components";
 import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
-import { devLogin, fetchBranding, fetchDemoCustomers, getToken, streamChat, } from "./api";
+import { devLogin, fetchBranding, fetchDemoCustomers, fetchMyInstances, getToken, streamChat, } from "./api";
+import { authEnabled } from "./auth";
 const useStyles = makeStyles({
     app: { display: "flex", flexDirection: "column", height: "100vh" },
     demoBanner: {
@@ -174,9 +175,37 @@ export function App() {
     }
     // Initial load on mount.
     useEffect(() => {
-        loadCustomers();
+        if (authEnabled()) {
+            loadSignedInCustomer();
+        }
+        else {
+            loadCustomers();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+    // Production: the user is already signed in (Entra External ID) and main.tsx
+    // cached an API token. The org_id comes from the token, so there is no
+    // switcher — just load this customer's branding + instances.
+    async function loadSignedInCustomer() {
+        setErr("");
+        try {
+            const [b, instances] = await Promise.all([fetchBranding(), fetchMyInstances()]);
+            setBranding(b);
+            const synthetic = {
+                org_id: b.org_id,
+                name: b.org_name || b.product_name,
+                instances,
+            };
+            setCustomer(synthetic);
+            setInstanceId(instances[0]?.id || "");
+            if (!instances.length) {
+                setErr("No chat instance is configured for your account yet.");
+            }
+        }
+        catch (e) {
+            setErr(e.message);
+        }
+    }
     useEffect(() => {
         chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
     }, [messages]);
@@ -207,11 +236,12 @@ export function App() {
     }
     const color = branding?.primary_color || "#138DDE";
     const suggestions = customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
-    return (_jsxs("div", { className: styles.app, children: [_jsx("div", { className: styles.demoBanner, children: "\u26A0\uFE0F DEMO MODE \u2014 sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID." }), _jsxs("header", { className: styles.header, style: { background: brandGradient(color) }, children: [_jsx("img", { src: branding?.logo_url || "/logo.svg", className: styles.logo, alt: "logo" }), _jsxs("div", { children: [_jsx(Text, { weight: "bold", size: 500, children: branding?.product_name || "AgentLoom" }), branding?.tagline && (_jsx("div", { children: _jsx(Text, { size: 200, children: branding.tagline }) }))] }), _jsx("div", { className: styles.spacer }), _jsxs("div", { className: styles.row, children: [_jsx(Text, { size: 200, children: "Demo customer:" }), _jsx(Dropdown, { size: "small", value: customer?.name || "", selectedOptions: customer ? [customer.org_id] : [], onOptionSelect: (_, d) => {
-                                    const c = customers.find((x) => x.org_id === d.optionValue);
-                                    if (c)
-                                        selectCustomer(c);
-                                }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), _jsx(Button, { appearance: "transparent", className: styles.refreshBtn, title: "Refresh customer list", "aria-label": "Refresh customer list", disabled: refreshing, icon: _jsx(ArrowClockwise20Regular, { className: refreshing ? styles.spin : undefined }), onClick: () => loadCustomers({ keepSelection: true }) }), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text ? _jsx(Markdown, { text: m.text }) : busy ? _jsx(Spinner, { size: "tiny" }) : "" })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
+    const prod = authEnabled();
+    return (_jsxs("div", { className: styles.app, children: [!prod && (_jsx("div", { className: styles.demoBanner, children: "\u26A0\uFE0F DEMO MODE \u2014 sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID." })), _jsxs("header", { className: styles.header, style: { background: brandGradient(color) }, children: [_jsx("img", { src: branding?.logo_url || "/logo.svg", className: styles.logo, alt: "logo" }), _jsxs("div", { children: [_jsx(Text, { weight: "bold", size: 500, children: branding?.product_name || "AgentLoom" }), branding?.tagline && (_jsx("div", { children: _jsx(Text, { size: 200, children: branding.tagline }) }))] }), _jsx("div", { className: styles.spacer }), _jsxs("div", { className: styles.row, children: [!prod && (_jsxs(_Fragment, { children: [_jsx(Text, { size: 200, children: "Demo customer:" }), _jsx(Dropdown, { size: "small", value: customer?.name || "", selectedOptions: customer ? [customer.org_id] : [], onOptionSelect: (_, d) => {
+                                            const c = customers.find((x) => x.org_id === d.optionValue);
+                                            if (c)
+                                                selectCustomer(c);
+                                        }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), _jsx(Button, { appearance: "transparent", className: styles.refreshBtn, title: "Refresh customer list", "aria-label": "Refresh customer list", disabled: refreshing, icon: _jsx(ArrowClockwise20Regular, { className: refreshing ? styles.spin : undefined }), onClick: () => loadCustomers({ keepSelection: true }) })] })), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text ? _jsx(Markdown, { text: m.text }) : busy ? _jsx(Spinner, { size: "tiny" }) : "" })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
                                 send();

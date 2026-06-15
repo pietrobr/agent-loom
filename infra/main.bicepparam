@@ -12,3 +12,18 @@ param containerImageTag = readEnvironmentVariable('AZURE_CONTAINER_TAG', 'latest
 param backendExists = bool(readEnvironmentVariable('SERVICE_BACKEND_RESOURCE_EXISTS', 'false'))
 param adminExists = bool(readEnvironmentVariable('SERVICE_ADMIN_DESIGNER_RESOURCE_EXISTS', 'false'))
 param customerExists = bool(readEnvironmentVariable('SERVICE_CUSTOMER_WEBAPP_RESOURCE_EXISTS', 'false'))
+
+// Production identity (set by scripts/setup_identity.ps1 → azd env set ...).
+param authMode = readEnvironmentVariable('AUTH_MODE', 'dev')
+param workforceTenantId = readEnvironmentVariable('WORKFORCE_TENANT_ID', '')
+param workforceAudience = readEnvironmentVariable('WORKFORCE_AUDIENCE', '')
+param ciamTenantId = readEnvironmentVariable('CIAM_TENANT_ID', '')
+param ciamSubdomain = readEnvironmentVariable('CIAM_SUBDOMAIN', '')
+param ciamAudience = readEnvironmentVariable('CIAM_AUDIENCE', '')
+param orgIdClaim = readEnvironmentVariable('ORG_ID_CLAIM', 'org_id')
+param adminClientId = readEnvironmentVariable('VITE_ADMIN_CLIENT_ID', '')
+param adminAuthority = readEnvironmentVariable('VITE_ADMIN_AUTHORITY', '')
+param adminApiScope = readEnvironmentVariable('VITE_ADMIN_API_SCOPE', '')
+param customerClientId = readEnvironmentVariable('VITE_CUSTOMER_CLIENT_ID', '')
+param customerAuthority = readEnvironmentVariable('VITE_CUSTOMER_AUTHORITY', '')
+param customerApiScope = readEnvironmentVariable('VITE_CUSTOMER_API_SCOPE', '')

@@ -12,12 +12,16 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 
+from ..config import get_settings
 from ..services import cosmos
 
 router = APIRouter(prefix="/v1/demo", tags=["demo"])
 
 
 def _dev_enabled() -> bool:
+    # The demo customer switcher is dev-only; off in production auth mode.
+    if get_settings().is_production_auth:
+        return False
     return os.environ.get("ALLOW_DEV_TOKENS", "false").lower() == "true"
 
 

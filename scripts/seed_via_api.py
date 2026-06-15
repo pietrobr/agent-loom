@@ -71,6 +71,24 @@ def _wait_for_backend(max_wait_s: int = 360) -> None:
 
 
 def _admin_token() -> str:
+    """Obtain an admin bearer token for the backend's /v1/admin endpoints.
+
+    Two paths, never mixed:
+
+      * dev (default) — mint an HS256 admin dev-token from /v1/auth/dev-token
+        (requires ALLOW_DEV_TOKENS=true; the demo flow).
+      * production (AUTH_MODE=production) — acquire a REAL Entra ID admin access
+        token via MSAL **device-code** sign-in against the provider workforce
+        tenant. The signed-in user must hold the 'admin' app role. No dev tokens
+        are ever enabled, so dev and prod stay fully separate.
+
+    In production you can also bypass the interactive flow by passing a token
+    directly via the ADMIN_API_TOKEN env var.
+    """
+    auth_mode = (os.environ.get("AUTH_MODE") or "dev").strip().lower()
+    if auth_mode in ("production", "prod"):
+        return _entra_admin_token()
+
     r = HTTP.post(
         f"{BACKEND_URL}/v1/auth/dev-token",
         json={"org_id": "_system", "sub": "seed", "roles": ["admin"], "ttl_seconds": 3600},
@@ -81,6 +99,44 @@ def _admin_token() -> str:
             f"{r.status_code} {r.text}"
         )
     return r.json()["access_token"]
+
+
+def _entra_admin_token() -> str:
+    """Acquire an Entra ID admin access token (production seeding)."""
+    # Allow a pre-acquired token to be injected (CI, or `az`/manual).
+    pasted = (os.environ.get("ADMIN_API_TOKEN") or "").strip()
+    if pasted:
+        print("Using ADMIN_API_TOKEN from environment.")
+        return pasted
+
+    client_id = (os.environ.get("VITE_ADMIN_CLIENT_ID") or os.environ.get("ADMIN_CLIENT_ID") or "").strip()
+    authority = (os.environ.get("VITE_ADMIN_AUTHORITY") or os.environ.get("ADMIN_AUTHORITY") or "").strip()
+    api_scope = (os.environ.get("VITE_ADMIN_API_SCOPE") or os.environ.get("ADMIN_API_SCOPE") or "").strip()
+    if not (client_id and authority and api_scope):
+        raise SystemExit(
+            "Production seeding needs the admin SPA settings. Set ADMIN_API_TOKEN, "
+            "or VITE_ADMIN_CLIENT_ID / VITE_ADMIN_AUTHORITY / VITE_ADMIN_API_SCOPE "
+            "(printed by scripts/setup_identity.ps1)."
+        )
+    try:
+        from msal import PublicClientApplication  # type: ignore
+    except ImportError:
+        raise SystemExit("Production seeding needs the 'msal' package: pip install msal")
+
+    app = PublicClientApplication(client_id, authority=authority)
+    flow = app.initiate_device_flow(scopes=[api_scope])
+    if "user_code" not in flow:
+        raise SystemExit(f"Failed to start device-code sign-in: {flow}")
+    print("\n=== Admin sign-in required (provider workforce tenant) ===")
+    print(flow["message"])  # tells the user where to go + the code
+    print("Waiting for you to complete sign-in in the browser…")
+    result = app.acquire_token_by_device_flow(flow)
+    if "access_token" not in result:
+        raise SystemExit(
+            f"Admin sign-in failed: {result.get('error')} — {result.get('error_description')}"
+        )
+    print("Admin token acquired.")
+    return result["access_token"]
 
 
 def _seed_templates(headers: dict) -> None:

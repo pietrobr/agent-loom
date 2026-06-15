@@ -21,10 +21,12 @@ import {
   devLogin,
   fetchBranding,
   fetchDemoCustomers,
+  fetchMyInstances,
   getToken,
   setToken,
   streamChat,
 } from "./api";
+import { authEnabled } from "./auth";
 
 const useStyles = makeStyles({
   app: { display: "flex", flexDirection: "column", height: "100vh" },
@@ -202,9 +204,36 @@ export function App() {
 
   // Initial load on mount.
   useEffect(() => {
-    loadCustomers();
+    if (authEnabled()) {
+      loadSignedInCustomer();
+    } else {
+      loadCustomers();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Production: the user is already signed in (Entra External ID) and main.tsx
+  // cached an API token. The org_id comes from the token, so there is no
+  // switcher — just load this customer's branding + instances.
+  async function loadSignedInCustomer() {
+    setErr("");
+    try {
+      const [b, instances] = await Promise.all([fetchBranding(), fetchMyInstances()]);
+      setBranding(b);
+      const synthetic: DemoCustomer = {
+        org_id: b.org_id,
+        name: b.org_name || b.product_name,
+        instances,
+      };
+      setCustomer(synthetic);
+      setInstanceId(instances[0]?.id || "");
+      if (!instances.length) {
+        setErr("No chat instance is configured for your account yet.");
+      }
+    } catch (e: any) {
+      setErr(e.message);
+    }
+  }
 
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
@@ -242,12 +271,15 @@ export function App() {
   const color = branding?.primary_color || "#138DDE";
   const suggestions =
     customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
+  const prod = authEnabled();
 
   return (
     <div className={styles.app}>
-      <div className={styles.demoBanner}>
-        ⚠️ DEMO MODE — sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID.
-      </div>
+      {!prod && (
+        <div className={styles.demoBanner}>
+          ⚠️ DEMO MODE — sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID.
+        </div>
+      )}
       <header className={styles.header} style={{ background: brandGradient(color) }}>
         <img src={branding?.logo_url || "/logo.svg"} className={styles.logo} alt="logo" />
         <div>
@@ -262,33 +294,37 @@ export function App() {
         </div>
         <div className={styles.spacer} />
         <div className={styles.row}>
-          <Text size={200}>Demo customer:</Text>
-          <Dropdown
-            size="small"
-            value={customer?.name || ""}
-            selectedOptions={customer ? [customer.org_id] : []}
-            onOptionSelect={(_, d) => {
-              const c = customers.find((x) => x.org_id === d.optionValue);
-              if (c) selectCustomer(c);
-            }}
-          >
-            {customers.map((c) => (
-              <Option key={c.org_id} value={c.org_id}>
-                {c.name}
-              </Option>
-            ))}
-          </Dropdown>
-          <Button
-            appearance="transparent"
-            className={styles.refreshBtn}
-            title="Refresh customer list"
-            aria-label="Refresh customer list"
-            disabled={refreshing}
-            icon={
-              <ArrowClockwise20Regular className={refreshing ? styles.spin : undefined} />
-            }
-            onClick={() => loadCustomers({ keepSelection: true })}
-          />
+          {!prod && (
+            <>
+              <Text size={200}>Demo customer:</Text>
+              <Dropdown
+                size="small"
+                value={customer?.name || ""}
+                selectedOptions={customer ? [customer.org_id] : []}
+                onOptionSelect={(_, d) => {
+                  const c = customers.find((x) => x.org_id === d.optionValue);
+                  if (c) selectCustomer(c);
+                }}
+              >
+                {customers.map((c) => (
+                  <Option key={c.org_id} value={c.org_id}>
+                    {c.name}
+                  </Option>
+                ))}
+              </Dropdown>
+              <Button
+                appearance="transparent"
+                className={styles.refreshBtn}
+                title="Refresh customer list"
+                aria-label="Refresh customer list"
+                disabled={refreshing}
+                icon={
+                  <ArrowClockwise20Regular className={refreshing ? styles.spin : undefined} />
+                }
+                onClick={() => loadCustomers({ keepSelection: true })}
+              />
+            </>
+          )}
           {customer && customer.instances.length > 1 && (
             <Dropdown
               size="small"

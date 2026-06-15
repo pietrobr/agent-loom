@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .middleware import TenantContextMiddleware
-from .routers import admin, branding, catalog, chat, demo, dev_auth
+from .routers import admin, branding, catalog, chat, demo, dev_auth, me
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -67,3 +67,4 @@ app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(dev_auth.router)
 app.include_router(demo.router)
+app.include_router(me.router)

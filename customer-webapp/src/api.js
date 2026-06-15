@@ -21,6 +21,18 @@ export async function fetchDemoCustomers() {
     return res.json();
 }
 /**
+ * Production: the signed-in customer's own chat instances, scoped server-side
+ * by the org_id claim in their Entra External ID token (no switcher).
+ */
+export async function fetchMyInstances() {
+    const res = await fetch(`${API_BASE}/v1/me/instances`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok)
+        throw new Error(`my instances (${res.status})`);
+    return res.json();
+}
+/**
  * Dev convenience: request a demo JWT from the backend (only works when the
  * backend has ALLOW_DEV_TOKENS=true). In production this is replaced by the
  * Entra External ID sign-in flow.

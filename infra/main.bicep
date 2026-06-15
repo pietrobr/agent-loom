@@ -42,6 +42,38 @@ param backendExists bool = false
 param adminExists bool = false
 param customerExists bool = false
 
+// --- Production identity (Entra ID workforce + Entra External ID/CIAM) ------
+// When authMode = 'production' the backend verifies RS256 tokens via JWKS and
+// the dev-token / demo endpoints are disabled. Leave 'dev' for the demo flow.
+@description('Auth mode: dev (HS256 demo tokens) or production (Entra RS256/JWKS).')
+param authMode string = 'dev'
+
+@description('Provider workforce (admin) tenant id.')
+param workforceTenantId string = ''
+@description('Admin SPA app registration client id (token audience).')
+param workforceAudience string = ''
+
+@description('Customer Entra External ID (CIAM) tenant id.')
+param ciamTenantId string = ''
+@description('CIAM tenant initial-domain label, e.g. agentloomcustomers.')
+param ciamSubdomain string = ''
+@description('Customer SPA app registration client id (token audience).')
+param ciamAudience string = ''
+@description('org_id claim name emitted on customer tokens (claims-mapping policy emits "org_id").')
+param orgIdClaim string = 'org_id'
+
+@description('Admin SPA: MSAL client id / authority / API scope (workforce).')
+param adminClientId string = ''
+param adminAuthority string = ''
+param adminApiScope string = ''
+
+@description('Customer SPA: MSAL client id / authority / API scope (CIAM).')
+param customerClientId string = ''
+param customerAuthority string = ''
+param customerApiScope string = ''
+
+var isProduction = toLower(authMode) == 'production' || toLower(authMode) == 'prod'
+
 // ---------------------------------------------------------------------------
 // Naming
 // ---------------------------------------------------------------------------
@@ -269,7 +301,14 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'FOUNDRY_TENANT_ID', value: foundry.outputs.tenantId }
       { name: 'AZURE_CLIENT_ID',  value: managedIdentity.properties.clientId }
       { name: 'ALLOWED_ORIGINS',  value: '*' }
-      { name: 'ALLOW_DEV_TOKENS', value: 'true' }
+      { name: 'ALLOW_DEV_TOKENS', value: isProduction ? 'false' : 'true' }
+      { name: 'AUTH_MODE', value: authMode }
+      { name: 'WORKFORCE_TENANT_ID', value: workforceTenantId }
+      { name: 'WORKFORCE_AUDIENCE', value: workforceAudience }
+      { name: 'CIAM_TENANT_ID', value: ciamTenantId }
+      { name: 'CIAM_SUBDOMAIN', value: ciamSubdomain }
+      { name: 'CIAM_AUDIENCE', value: ciamAudience }
+      { name: 'ORG_ID_CLAIM', value: orgIdClaim }
     ]
   }
 }
@@ -289,6 +328,9 @@ module adminApp 'modules/containerapp.bicep' = {
     tags: union(commonTags, { 'azd-service-name': 'admin-designer' })
     envVars: [
       { name: 'API_BASE', value: 'https://${backendApp.outputs.fqdn}' }
+      { name: 'AUTH_CLIENT_ID', value: adminClientId }
+      { name: 'AUTH_AUTHORITY', value: adminAuthority }
+      { name: 'AUTH_API_SCOPE', value: adminApiScope }
     ]
   }
 }
@@ -308,6 +350,9 @@ module customerApp 'modules/containerapp.bicep' = {
     tags: union(commonTags, { 'azd-service-name': 'customer-webapp' })
     envVars: [
       { name: 'API_BASE', value: 'https://${backendApp.outputs.fqdn}' }
+      { name: 'AUTH_CLIENT_ID', value: customerClientId }
+      { name: 'AUTH_AUTHORITY', value: customerAuthority }
+      { name: 'AUTH_API_SCOPE', value: customerApiScope }
     ]
   }
 }

@@ -26,11 +26,28 @@ $seedDemo = azd env get-value SEED_DEMO_CUSTOMERS 2>$null
 if (-not $seedDemo) { $seedDemo = "true" }
 $env:SEED_DEMO_CUSTOMERS = $seedDemo
 
-Write-Host "Installing dependencies for the API seeder…"
-python -m pip install --quiet httpx
-
-Write-Host "Seeding via backend API ($($env:BACKEND_URL))…"
-python "$repo/scripts/seed_via_api.py"
+# In production auth mode the seeder needs an interactive admin sign-in, which
+# must not happen inside `azd up`. Skip auto-seeding and tell the user to run it
+# manually as a separate step (keeps dev and prod fully separate).
+$authMode = azd env get-value AUTH_MODE 2>$null
+if ($authMode -and $authMode.Trim().ToLower() -in @("production", "prod")) {
+    $env:AUTH_MODE = $authMode
+    Write-Host "AUTH_MODE=production — skipping automatic seeding."
+    Write-Host "Run the seed manually once, signing in as the provider admin:"
+    Write-Host ""
+    Write-Host "  `$env:AUTH_MODE='production'"
+    Write-Host "  `$env:BACKEND_URL=(azd env get-value BACKEND_URL)"
+    Write-Host "  `$env:VITE_ADMIN_CLIENT_ID=(azd env get-value VITE_ADMIN_CLIENT_ID)"
+    Write-Host "  `$env:VITE_ADMIN_AUTHORITY=(azd env get-value VITE_ADMIN_AUTHORITY)"
+    Write-Host "  `$env:VITE_ADMIN_API_SCOPE=(azd env get-value VITE_ADMIN_API_SCOPE)"
+    Write-Host "  python scripts/seed_via_api.py"
+    Write-Host ""
+} else {
+    Write-Host "Installing dependencies for the API seeder…"
+    python -m pip install --quiet httpx
+    Write-Host "Seeding via backend API ($($env:BACKEND_URL))…"
+    python "$repo/scripts/seed_via_api.py"
+}
 
 Write-Host "Done. URLs:"
 Write-Host ("  Backend  : " + (azd env get-value BACKEND_URL))

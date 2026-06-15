@@ -1,9 +1,16 @@
 """JWT verification + tenant context.
 
-For the MVP we accept HS256 tokens signed with a shared secret pulled from Key
-Vault (falling back to env). The required claim is `org_id`, plus optional
-`roles` (e.g. ["admin"]). When External ID is wired in later, swap the
-verification path for JWKS-based RS256 — the rest of the app stays the same.
+Two modes, selected by ``AUTH_MODE``:
+
+  * ``dev`` (default) — accept HS256 tokens signed with a shared secret (the
+    demo/dev-token flow). Required claim: ``org_id`` (+ optional ``roles``).
+  * ``production`` — verify RS256 access tokens against the JWKS of the two
+    Entra tenants: the provider **workforce** tenant (admins) and the customer
+    **Entra External ID (CIAM)** tenant (end users). Admins are recognised by an
+    app-role claim; customers carry their ``org_id`` as a custom claim.
+
+Either way the rest of the app only depends on the resulting ``Principal``
+(``org_id`` + ``roles``), so middleware, isolation and routers are unchanged.
 """
 from __future__ import annotations
 
@@ -16,6 +23,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 from .config import Settings, get_settings
+from . import jwks as jwks_mod
+from .models import SYSTEM_ORG
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +43,69 @@ class Principal:
         return "admin" in self.roles
 
 
-def verify_token(token: str, settings: Settings) -> Principal:
+def _roles_from_claim(payload: dict) -> List[str]:
+    roles = payload.get("roles") or []
+    if isinstance(roles, str):
+        roles = [roles]
+    return list(roles)
+
+
+def _verify_production(token: str, settings: Settings) -> Principal:
+    """Verify an Entra access token (workforce admin OR CIAM customer)."""
+    iss = jwks_mod.unverified_issuer(token)
+    if not iss:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing issuer")
+
+    wf_iss = settings.workforce_oidc_issuer
+    ciam_iss = settings.ciam_oidc_issuer
+
+    try:
+        if settings.workforce_tenant_id and iss == wf_iss:
+            payload = jwks_mod.verify_rs256(
+                token,
+                jwks_uri=settings.workforce_oidc_jwks,
+                issuer=wf_iss,
+                audience=settings.workforce_audience,
+            )
+            roles = _roles_from_claim(payload)
+            if settings.admin_role_value not in roles:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "admin app role required")
+            # Provider admins operate on the partner-global partition.
+            return Principal(
+                sub=str(payload.get("sub", "admin")),
+                org_id=SYSTEM_ORG,
+                roles=["admin"],
+                email=payload.get("preferred_username") or payload.get("email"),
+            )
+
+        if settings.ciam_tenant_id and iss == ciam_iss:
+            payload = jwks_mod.verify_rs256(
+                token,
+                jwks_uri=settings.ciam_oidc_jwks,
+                issuer=ciam_iss,
+                audience=settings.ciam_audience,
+            )
+            org_id = payload.get(settings.org_id_claim)
+            if not org_id:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED,
+                    f"missing '{settings.org_id_claim}' claim on customer token",
+                )
+            return Principal(
+                sub=str(payload.get("sub", "user")),
+                org_id=str(org_id),
+                roles=[],
+                email=payload.get("preferred_username") or payload.get("email"),
+            )
+    except JWTError as exc:
+        log.warning("RS256 validation failed: %s", exc)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token") from exc
+
+    log.warning("Token issuer not recognised: %s", iss)
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unrecognised token issuer")
+
+
+def _verify_dev(token: str, settings: Settings) -> Principal:
     try:
         payload = jwt.decode(
             token,
@@ -52,16 +123,19 @@ def verify_token(token: str, settings: Settings) -> Principal:
     if not org_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing org_id claim")
 
-    roles = payload.get("roles") or []
-    if isinstance(roles, str):
-        roles = [roles]
-
     return Principal(
         sub=str(payload["sub"]),
         org_id=str(org_id),
-        roles=list(roles),
+        roles=_roles_from_claim(payload),
         email=payload.get("email"),
     )
+
+
+def verify_token(token: str, settings: Settings) -> Principal:
+    if settings.is_production_auth:
+        return _verify_production(token, settings)
+    return _verify_dev(token, settings)
+
 
 
 def get_principal(

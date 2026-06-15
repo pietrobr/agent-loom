@@ -10,6 +10,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@azure/msal-browser": "3.27.0",
     "@fluentui/react-components": "9.66.4",
     "@fluentui/react-icons": "2.0.305",
     "react": "18.3.1",

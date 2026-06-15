@@ -422,18 +422,61 @@ projection. Prices live in `config/azure_prices.json` (and
 `scripts/fetch_azure_prices.py`) and are loaded by
 `backend/app/services/pricing.py`.
 
-### 6. Wire Microsoft Entra External ID (CIAM)
+### 6. Production identity — Entra ID (admins) + Entra External ID (customers)
 
-For the MVP, end-customer auth uses a validated **HS256 JWT** carrying an
-`org_id` claim (and optional `roles`). To move to production:
+In the demo, sign-in is simulated with **HS256 dev tokens** (`AUTH_MODE=dev`,
+the default). For production, the backend verifies real **RS256 access tokens**
+against the JWKS of two Microsoft Entra tenants (`AUTH_MODE=production`):
 
-1. Create an **Entra External ID** (CIAM) tenant and a user flow.
-2. Add an `org_id` claim to the token (custom attribute / claims mapping).
-3. Replace the verification in [backend/app/security.py](backend/app/security.py)
-   with JWKS-based RS256 validation against your External ID tenant
-   (`issuer`, `audience`, and the published `jwks_uri`). The rest of the app —
-   middleware, isolation, routers — is unchanged because it only depends on the
-   `org_id`/`roles` claims.
+- **Provider admins** sign in to your **workforce Entra ID** tenant (e.g.
+  `paint4kids.onmicrosoft.com`). An app role `admin` authorizes the SaaS Console.
+- **End customers** sign in to your **Entra External ID (CIAM)** tenant (e.g.
+  `agentloomcustomers.onmicrosoft.com`). Their token carries an `org_id` claim
+  that maps to the customer record — the backend reads it; there is no switcher.
+
+The middleware, isolation and routers are unchanged: they only depend on the
+resulting `org_id`/`roles`, regardless of issuer.
+
+**One-time provisioning** — [scripts/setup_identity.ps1](scripts/setup_identity.ps1)
+creates both app registrations, the exposed API scopes (v2 access tokens), the
+`admin` app role (assigned to your admin), the `org_id` directory extension on
+the customer app, and — because Entra External ID doesn't emit extension
+attributes on access tokens by itself — a **claims-mapping policy** that emits
+`org_id` into the customer token (with `acceptMappedClaims`). It can also create
+two **test customer users** (with `org_id` set) when you pass `-SeedTestUsers`.
+You need to be Global Administrator of **both** tenants.
+
+```powershell
+# Sign in to each tenant in turn (the script prompts), create the apps, and
+# optionally seed two test users (demo-horizon / demo-novatech) carrying org_id:
+./scripts/setup_identity.ps1 `
+  -WorkforceTenant paint4kids.onmicrosoft.com `
+  -CiamTenant      agentloomcustomers.onmicrosoft.com `
+  -AdminUpn        pietro1@paint4kids.onmicrosoft.com `
+  -SeedTestUsers
+```
+
+The script prints the exact `azd env set …` lines to wire the backend and both
+SPAs (issuer/audience/JWKS are derived from the tenant ids). Apply them, then:
+
+```bash
+azd up
+```
+
+After the first deploy, add the deployed SPA URLs (`ADMIN_URL`, `CUSTOMER_URL`)
+as **SPA redirect URIs** on the two app registrations (the script seeds
+`localhost` for local dev). The frontends pick up MSAL config at runtime from
+`env-config.js` (injected from the `AUTH_*` container env vars), the same way
+they get `API_BASE` — no rebuild needed.
+
+| Setting | `azd env set …` | Notes |
+|---|---|---|
+| Auth mode | `AUTH_MODE production` | Disables dev tokens + demo switcher |
+| Workforce tenant | `WORKFORCE_TENANT_ID`, `WORKFORCE_AUDIENCE` | Admin app reg client id = audience |
+| CIAM tenant | `CIAM_TENANT_ID`, `CIAM_SUBDOMAIN`, `CIAM_AUDIENCE` | Customer app reg client id = audience |
+| Claim name | `ORG_ID_CLAIM` | `org_id` (emitted by a claims-mapping policy) |
+| Admin SPA | `VITE_ADMIN_CLIENT_ID/AUTHORITY/API_SCOPE` | workforce authority |
+| Customer SPA | `VITE_CUSTOMER_CLIENT_ID/AUTHORITY/API_SCOPE` | `*.ciamlogin.com` authority |
 
 Do **not** use B2B guest users in the provider tenant for customer identities.
 

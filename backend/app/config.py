@@ -79,6 +79,65 @@ class Settings(BaseSettings):
     jwt_audience: str = "agentloom"
     jwt_algorithm: str = "HS256"
 
+    # --- Production identity (Entra ID workforce + Entra External ID/CIAM) ----
+    # auth_mode = "dev" keeps the HS256 dev-token flow (demo). auth_mode =
+    # "production" verifies RS256 access tokens against the two tenants' JWKS
+    # and DISABLES the dev-token + demo endpoints.
+    auth_mode: str = "dev"
+
+    # Provider workforce tenant (admins sign in here). Audience is the admin
+    # SPA/API app registration's client id (or App ID URI).
+    workforce_tenant_id: str = ""
+    workforce_audience: str = ""
+    # Optional explicit issuer/jwks overrides (otherwise derived from tenant id).
+    workforce_issuer: str = ""
+    workforce_jwks_uri: str = ""
+
+    # Customer Entra External ID (CIAM) tenant. Audience is the customer SPA/API
+    # app registration's client id. subdomain = the tenant's initial domain
+    # label (e.g. "agentloomcustomers" for agentloomcustomers.onmicrosoft.com).
+    ciam_tenant_id: str = ""
+    ciam_subdomain: str = ""
+    ciam_audience: str = ""
+    ciam_issuer: str = ""
+    ciam_jwks_uri: str = ""
+
+    # Claim names. org_id arrives as a custom/extension claim on the customer
+    # token; admins are recognised by an app role / roles claim value.
+    org_id_claim: str = "org_id"
+    admin_role_value: str = "admin"
+
+    @property
+    def is_production_auth(self) -> bool:
+        return self.auth_mode.strip().lower() in ("production", "prod")
+
+    @property
+    def workforce_oidc_issuer(self) -> str:
+        if self.workforce_issuer:
+            return self.workforce_issuer
+        return f"https://login.microsoftonline.com/{self.workforce_tenant_id}/v2.0"
+
+    @property
+    def workforce_oidc_jwks(self) -> str:
+        if self.workforce_jwks_uri:
+            return self.workforce_jwks_uri
+        return f"https://login.microsoftonline.com/{self.workforce_tenant_id}/discovery/v2.0/keys"
+
+    @property
+    def ciam_oidc_issuer(self) -> str:
+        if self.ciam_issuer:
+            return self.ciam_issuer
+        # Entra External ID (CIAM) tokens carry an issuer whose subdomain is the
+        # tenant GUID (not the friendly subdomain label):
+        #   https://<tenantId>.ciamlogin.com/<tenantId>/v2.0
+        return f"https://{self.ciam_tenant_id}.ciamlogin.com/{self.ciam_tenant_id}/v2.0"
+
+    @property
+    def ciam_oidc_jwks(self) -> str:
+        if self.ciam_jwks_uri:
+            return self.ciam_jwks_uri
+        return f"https://{self.ciam_tenant_id}.ciamlogin.com/{self.ciam_tenant_id}/discovery/v2.0/keys"
+
     # CORS
     allowed_origins: str = "*"
 

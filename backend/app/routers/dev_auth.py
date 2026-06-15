@@ -27,6 +27,9 @@ class TokenRequest(BaseModel):
 
 
 def _dev_enabled() -> bool:
+    # Never enable dev tokens in production auth mode, regardless of the flag.
+    if get_settings().is_production_auth:
+        return False
     return os.environ.get("ALLOW_DEV_TOKENS", "false").lower() == "true"
 
 

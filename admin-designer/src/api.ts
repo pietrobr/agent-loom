@@ -12,6 +12,8 @@ export const API_BASE: string =
     (import.meta as any).env?.VITE_API_BASE ||
     "http://localhost:8000").replace(/\/$/, "");
 
+import { authEnabled, acquireApiToken } from "./auth";
+
 const TOKEN_KEY = "agentloom_admin_token";
 
 export function getToken(): string {
@@ -50,12 +52,15 @@ async function req<T>(path: string, init: RequestInit = {}, _retried = false): P
       ...(init.headers || {}),
     },
   });
-  // Demo convenience: a stale/expired dev token returns 401. Transparently
-  // refresh it once and retry. In production (no dev tokens) the refresh call
-  // fails and the original 401 surfaces, prompting a real sign-in.
+  // A stale/expired token returns 401. Transparently refresh once and retry:
+  // in production via Entra ID (MSAL), in dev via the dev-token endpoint.
   if (res.status === 401 && !_retried) {
     try {
-      await devAdminLogin();
+      if (authEnabled()) {
+        await acquireApiToken();
+      } else {
+        await devAdminLogin();
+      }
       return req<T>(path, init, true);
     } catch {
       /* fall through to throw below */
