@@ -9,6 +9,29 @@ export function getToken() {
 export function setToken(t) {
     sessionStorage.setItem(TOKEN_KEY, t.trim());
 }
+/** Error carrying the HTTP status + optional machine code from the backend. */
+export class ApiError extends Error {
+    status;
+    code;
+    constructor(message, status, code) {
+        super(message);
+        this.status = status;
+        this.code = code;
+    }
+}
+async function readError(res, label) {
+    let code;
+    let detail = "";
+    try {
+        const j = await res.json();
+        code = j?.code;
+        detail = j?.detail || "";
+    }
+    catch {
+        /* non-JSON body */
+    }
+    return new ApiError(detail || `${label} (${res.status})`, res.status, code);
+}
 /**
  * Demo-only: fetch the REAL customers (with their instances) from the backend
  * so the switcher reflects whatever was created in the Designer. Disabled in
@@ -29,7 +52,7 @@ export async function fetchMyInstances() {
         headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok)
-        throw new Error(`my instances (${res.status})`);
+        throw await readError(res, "my instances");
     return res.json();
 }
 /**
@@ -54,7 +77,7 @@ export async function fetchBranding() {
         headers: { Authorization: `Bearer ${getToken()}` },
     });
     if (!res.ok)
-        throw new Error(`branding (${res.status})`);
+        throw await readError(res, "branding");
     return res.json();
 }
 export async function fetchCatalog() {
@@ -81,7 +104,17 @@ export async function streamChat(body, ev, signal) {
         signal,
     });
     if (!res.ok || !res.body) {
-        ev.onError?.(`chat failed (${res.status}): ${await res.text()}`);
+        let code;
+        let detail = "";
+        try {
+            const j = JSON.parse(await res.text());
+            code = j?.code;
+            detail = j?.detail || "";
+        }
+        catch {
+            /* non-JSON body */
+        }
+        ev.onError?.(detail || `chat failed (${res.status})`, res.status, code);
         return;
     }
     const reader = res.body.getReader();

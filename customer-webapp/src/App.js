@@ -4,8 +4,8 @@ import { Button, Textarea, Text, Dropdown, Option, Spinner, Badge, makeStyles, t
 import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
-import { devLogin, fetchBranding, fetchDemoCustomers, fetchMyInstances, getToken, streamChat, } from "./api";
-import { authEnabled } from "./auth";
+import { devLogin, fetchBranding, fetchDemoCustomers, fetchMyInstances, getToken, streamChat, ApiError, } from "./api";
+import { authEnabled, signOut } from "./auth";
 const useStyles = makeStyles({
     app: { display: "flex", flexDirection: "column", height: "100vh" },
     demoBanner: {
@@ -211,12 +211,31 @@ export function App() {
             }
         }
         catch (e) {
+            // A disabled or removed customer is locked out server-side (403). Show a
+            // friendly message and sign the user out.
+            if (e instanceof ApiError && handleLockout(e.status, e.code))
+                return;
             setErr(e.message);
         }
     }
     useEffect(() => {
         chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
     }, [messages]);
+    // Friendly lock-out: a disabled/removed customer (403) gets a clear message
+    // and is signed out, instead of a raw error. Returns true if handled.
+    function handleLockout(status, code) {
+        if (status !== 403 || (code !== "account_disabled" && code !== "account_removed")) {
+            return false;
+        }
+        setMessages([]);
+        setErr(code === "account_disabled"
+            ? "Your access has been turned off by your administrator. You'll be signed out now."
+            : "Your account is no longer available. You'll be signed out now.");
+        setBusy(false);
+        if (authEnabled())
+            setTimeout(() => signOut(), 3000);
+        return true;
+    }
     async function send(textOverride) {
         const text = (textOverride ?? input).trim();
         if (!text || busy || !instanceId)
@@ -237,7 +256,11 @@ export function App() {
                 });
             },
             onUsage: (u) => setLastUsage(u),
-            onError: (msg) => setErr(msg),
+            onError: (msg, status, code) => {
+                if (handleLockout(status, code))
+                    return;
+                setErr(msg);
+            },
             onDone: () => setBusy(false),
         });
         setBusy(false);

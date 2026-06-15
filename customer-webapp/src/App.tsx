@@ -25,8 +25,9 @@ import {
   getToken,
   setToken,
   streamChat,
+  ApiError,
 } from "./api";
-import { authEnabled } from "./auth";
+import { authEnabled, signOut } from "./auth";
 
 const useStyles = makeStyles({
   app: { display: "flex", flexDirection: "column", height: "100vh" },
@@ -238,6 +239,9 @@ export function App() {
         setErr("No chat instance is configured for your account yet.");
       }
     } catch (e: any) {
+      // A disabled or removed customer is locked out server-side (403). Show a
+      // friendly message and sign the user out.
+      if (e instanceof ApiError && handleLockout(e.status, e.code)) return;
       setErr(e.message);
     }
   }
@@ -245,6 +249,23 @@ export function App() {
   useEffect(() => {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
+
+  // Friendly lock-out: a disabled/removed customer (403) gets a clear message
+  // and is signed out, instead of a raw error. Returns true if handled.
+  function handleLockout(status?: number, code?: string): boolean {
+    if (status !== 403 || (code !== "account_disabled" && code !== "account_removed")) {
+      return false;
+    }
+    setMessages([]);
+    setErr(
+      code === "account_disabled"
+        ? "Your access has been turned off by your administrator. You'll be signed out now."
+        : "Your account is no longer available. You'll be signed out now."
+    );
+    setBusy(false);
+    if (authEnabled()) setTimeout(() => signOut(), 3000);
+    return true;
+  }
 
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim();
@@ -268,7 +289,10 @@ export function App() {
           });
         },
         onUsage: (u) => setLastUsage(u),
-        onError: (msg) => setErr(msg),
+        onError: (msg, status, code) => {
+          if (handleLockout(status, code)) return;
+          setErr(msg);
+        },
         onDone: () => setBusy(false),
       }
     );

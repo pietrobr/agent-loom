@@ -14,6 +14,30 @@ export function setToken(t: string): void {
   sessionStorage.setItem(TOKEN_KEY, t.trim());
 }
 
+/** Error carrying the HTTP status + optional machine code from the backend. */
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function readError(res: Response, label: string): Promise<ApiError> {
+  let code: string | undefined;
+  let detail = "";
+  try {
+    const j = await res.json();
+    code = j?.code;
+    detail = j?.detail || "";
+  } catch {
+    /* non-JSON body */
+  }
+  return new ApiError(detail || `${label} (${res.status})`, res.status, code);
+}
+
 export interface BrandingResponse {
   product_name: string;
   primary_color: string;
@@ -60,7 +84,7 @@ export async function fetchMyInstances(): Promise<DemoInstance[]> {
   const res = await fetch(`${API_BASE}/v1/me/instances`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
-  if (!res.ok) throw new Error(`my instances (${res.status})`);
+  if (!res.ok) throw await readError(res, "my instances");
   return res.json();
 }
 
@@ -85,7 +109,7 @@ export async function fetchBranding(): Promise<BrandingResponse> {
   const res = await fetch(`${API_BASE}/v1/branding`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
-  if (!res.ok) throw new Error(`branding (${res.status})`);
+  if (!res.ok) throw await readError(res, "branding");
   return res.json();
 }
 
@@ -102,7 +126,7 @@ export interface ChatEvents {
   onToken?: (t: string) => void;
   onUsage?: (u: any) => void;
   onDone?: () => void;
-  onError?: (msg: string) => void;
+  onError?: (msg: string, status?: number, code?: string) => void;
 }
 
 /**
@@ -126,7 +150,16 @@ export async function streamChat(
   });
 
   if (!res.ok || !res.body) {
-    ev.onError?.(`chat failed (${res.status}): ${await res.text()}`);
+    let code: string | undefined;
+    let detail = "";
+    try {
+      const j = JSON.parse(await res.text());
+      code = j?.code;
+      detail = j?.detail || "";
+    } catch {
+      /* non-JSON body */
+    }
+    ev.onError?.(detail || `chat failed (${res.status})`, res.status, code);
     return;
   }
 

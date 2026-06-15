@@ -15,6 +15,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .security import Principal, verify_token
 from .config import get_settings
+from .services import cosmos
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,18 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
 
         request.state.principal = principal
 
+        # Revoke access for customers whose tenant was disabled or deleted in
+        # the Admin Console: even with a still-valid token, a disabled/removed
+        # customer must be locked out immediately (the SPA signs them out on 403).
+        if not principal.is_admin:
+            tenant = cosmos.get_tenant(principal.org_id)
+            if not tenant:
+                log.warning("Access by unknown/removed tenant: org=%s", principal.org_id)
+                return _forbidden("account no longer exists", code="account_removed")
+            if not tenant.get("enabled", True):
+                log.warning("Access by disabled tenant: org=%s", principal.org_id)
+                return _forbidden("account disabled", code="account_disabled")
+
         # Cross-tenant guard for org-scoped paths.
         m = _ORG_PATH_RE.search(path)
         if m:
@@ -74,6 +87,9 @@ def _unauth(msg: str) -> Response:
     return JSONResponse({"detail": msg}, status_code=401)
 
 
-def _forbidden(msg: str) -> Response:
+def _forbidden(msg: str, code: str | None = None) -> Response:
     from fastapi.responses import JSONResponse
-    return JSONResponse({"detail": msg}, status_code=403)
+    body = {"detail": msg}
+    if code:
+        body["code"] = code
+    return JSONResponse(body, status_code=403)
