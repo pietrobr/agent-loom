@@ -77,3 +77,11 @@ export async function signOut(): Promise<void> {
   if (!authEnabled()) return;
   await client().logoutRedirect();
 }
+
+/** The signed-in user's display name + username (email), when MSAL is active. */
+export function currentUser(): { name?: string; username?: string } | null {
+  if (!authEnabled() || !msal) return null;
+  const acc = msal.getActiveAccount() || msal.getAllAccounts()[0];
+  if (!acc) return null;
+  return { name: acc.name, username: acc.username };
+}

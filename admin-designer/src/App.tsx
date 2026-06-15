@@ -8,10 +8,17 @@ import {
   makeStyles,
   tokens,
   Badge,
+  Avatar,
+  Menu,
+  MenuTrigger,
+  MenuPopover,
+  MenuList,
+  MenuItem,
 } from "@fluentui/react-components";
 import { useBranding } from "./branding";
 import { brandGradient } from "./theme";
 import { getToken, devAdminLogin } from "./api";
+import { authEnabled, currentUser, signOut } from "./auth";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { InstancesPage } from "./pages/InstancesPage";
@@ -66,11 +73,17 @@ export function App() {
     ? "/costs"
     : "/";
 
+  const prod = authEnabled();
+  const user = prod ? currentUser() : null;
+  const userLabel = user?.username || user?.name || "";
+
   return (
     <div className={styles.shell}>
-      <div className={styles.demoBanner}>
-        ⚠️ DEMO MODE — admin sign-in is simulated (dev tokens). In production this uses Microsoft Entra ID.
-      </div>
+      {!prod && (
+        <div className={styles.demoBanner}>
+          ⚠️ DEMO MODE — admin sign-in is simulated (dev tokens). In production this uses Microsoft Entra ID.
+        </div>
+      )}
       <header className={styles.header} style={{ background: brandGradient(branding.PRIMARY_COLOR) }}>
         <img src={branding.LOGO_URL} className={styles.logo} alt="logo" />
         <Text weight="bold" size={500}>
@@ -78,28 +91,46 @@ export function App() {
         </Text>
         <div className={styles.spacer} />
         <div className={styles.tokenRow}>
-          <Button
-            size="small"
-            appearance="primary"
-            onClick={async () => {
-              try {
-                await devAdminLogin();
-                location.reload();
-              } catch (e: any) {
-                alert(e.message);
-              }
-            }}
-          >
-            Demo admin login
-          </Button>
-          {getToken() ? (
-            <Badge color="success" appearance="filled">
-              authed
-            </Badge>
+          {prod ? (
+            <Menu>
+              <MenuTrigger disableButtonEnhancement>
+                <Button appearance="transparent" style={{ color: "#fff" }}>
+                  <Avatar size={24} color="colorful" name={user?.name || userLabel} />
+                  <span style={{ marginInlineStart: 8 }}>{userLabel}</span>
+                </Button>
+              </MenuTrigger>
+              <MenuPopover>
+                <MenuList>
+                  <MenuItem onClick={() => signOut()}>Sign out</MenuItem>
+                </MenuList>
+              </MenuPopover>
+            </Menu>
           ) : (
-            <Badge color="warning" appearance="filled">
-              no token
-            </Badge>
+            <>
+              <Button
+                size="small"
+                appearance="primary"
+                onClick={async () => {
+                  try {
+                    await devAdminLogin();
+                    location.reload();
+                  } catch (e: any) {
+                    alert(e.message);
+                  }
+                }}
+              >
+                Demo admin login
+              </Button>
+              {getToken() ? (
+                <Badge color="success" appearance="filled">
+                  authed
+                </Badge>
+              ) : (
+                <Badge color="warning" appearance="filled">
+                  no token
+                </Badge>
+              )}
+            </>
           )}
         </div>
       </header>
