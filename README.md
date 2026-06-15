@@ -436,7 +436,7 @@ Three things are deliberately **separate**:
 | Concern | Where it lives | Example |
 |---|---|---|
 | **Azure resources** (Container Apps, Cosmos, Search, Foundry…) | any Azure **subscription** | `MCAPS-…` |
-| **Admin identities** (provider operators) | a **workforce Entra ID** tenant | `paint4kids.onmicrosoft.com` |
+| **Admin identities** (provider operators) | a **workforce Entra ID** tenant | `contoso-saas.onmicrosoft.com` |
 | **Customer identities** (end users) | an **Entra External ID (CIAM)** tenant | `agentloomcustomers.onmicrosoft.com` |
 
 The resource subscription and the identity tenants are **independent**: the
@@ -469,9 +469,9 @@ in turn (browser prompt).
 
 ```powershell
 ./scripts/setup_identity.ps1 `
-  -WorkforceTenant paint4kids.onmicrosoft.com `
+  -WorkforceTenant contoso-saas.onmicrosoft.com `
   -CiamTenant      agentloomcustomers.onmicrosoft.com `
-  -AdminUpn        pietro1@paint4kids.onmicrosoft.com `
+  -AdminUpn        admin@contoso-saas.onmicrosoft.com `
   -SeedTestUsers     # optional: creates demo-horizon / demo-novatech test users
 ```
 
