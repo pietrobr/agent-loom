@@ -120,6 +120,7 @@ export function App() {
     const [convId, setConvId] = useState();
     const [lastUsage, setLastUsage] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
+    const [initializing, setInitializing] = useState(true);
     const chatRef = useRef(null);
     // Keep the browser tab title in sync with the selected customer's brand.
     useEffect(() => {
@@ -175,12 +176,19 @@ export function App() {
     }
     // Initial load on mount.
     useEffect(() => {
-        if (authEnabled()) {
-            loadSignedInCustomer();
-        }
-        else {
-            loadCustomers();
-        }
+        (async () => {
+            try {
+                if (authEnabled()) {
+                    await loadSignedInCustomer();
+                }
+                else {
+                    await loadCustomers();
+                }
+            }
+            finally {
+                setInitializing(false);
+            }
+        })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // Production: the user is already signed in (Entra External ID) and main.tsx
@@ -237,6 +245,18 @@ export function App() {
     const color = branding?.primary_color || "#138DDE";
     const suggestions = customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
     const prod = authEnabled();
+    // While the first sign-in + branding/instances load is in flight, show a
+    // full-screen loader so the app doesn't look "ready" with an empty customer.
+    if (initializing && !customer) {
+        return (_jsx("div", { style: {
+                height: "100vh",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 16,
+            }, children: _jsx(Spinner, { size: "huge", label: "Loading your workspace\u2026" }) }));
+    }
     return (_jsxs("div", { className: styles.app, children: [!prod && (_jsx("div", { className: styles.demoBanner, children: "\u26A0\uFE0F DEMO MODE \u2014 sign-in is simulated with demo tokens. In production customers sign in via Microsoft Entra External ID." })), _jsxs("header", { className: styles.header, style: { background: brandGradient(color) }, children: [_jsx("img", { src: branding?.logo_url || "/logo.svg", className: styles.logo, alt: "logo" }), _jsxs("div", { children: [_jsx(Text, { weight: "bold", size: 500, children: branding?.product_name || "AgentLoom" }), branding?.tagline && (_jsx("div", { children: _jsx(Text, { size: 200, children: branding.tagline }) }))] }), _jsx("div", { className: styles.spacer }), _jsxs("div", { className: styles.row, children: [!prod && (_jsxs(_Fragment, { children: [_jsx(Text, { size: 200, children: "Demo customer:" }), _jsx(Dropdown, { size: "small", value: customer?.name || "", selectedOptions: customer ? [customer.org_id] : [], onOptionSelect: (_, d) => {
                                             const c = customers.find((x) => x.org_id === d.optionValue);
                                             if (c)

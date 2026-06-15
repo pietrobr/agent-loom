@@ -148,6 +148,7 @@ export function App() {
   const [convId, setConvId] = useState<string | undefined>();
   const [lastUsage, setLastUsage] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [initializing, setInitializing] = useState(true);
   const chatRef = useRef<HTMLDivElement>(null);
 
   // Keep the browser tab title in sync with the selected customer's brand.
@@ -204,11 +205,17 @@ export function App() {
 
   // Initial load on mount.
   useEffect(() => {
-    if (authEnabled()) {
-      loadSignedInCustomer();
-    } else {
-      loadCustomers();
-    }
+    (async () => {
+      try {
+        if (authEnabled()) {
+          await loadSignedInCustomer();
+        } else {
+          await loadCustomers();
+        }
+      } finally {
+        setInitializing(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -272,6 +279,25 @@ export function App() {
   const suggestions =
     customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
   const prod = authEnabled();
+
+  // While the first sign-in + branding/instances load is in flight, show a
+  // full-screen loader so the app doesn't look "ready" with an empty customer.
+  if (initializing && !customer) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+        }}
+      >
+        <Spinner size="huge" label="Loading your workspace…" />
+      </div>
+    );
+  }
 
   return (
     <div className={styles.app}>
