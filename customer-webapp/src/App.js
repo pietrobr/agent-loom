@@ -1,11 +1,11 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useRef, useState } from "react";
 import { Button, Textarea, Text, Dropdown, Option, Spinner, Badge, makeStyles, tokens, Avatar, MessageBar, } from "@fluentui/react-components";
-import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
 import { devLogin, fetchBranding, fetchDemoCustomers, fetchMyInstances, getToken, streamChat, ApiError, } from "./api";
-import { authEnabled, signOut } from "./auth";
+import { authEnabled, signOut, signIn } from "./auth";
 const useStyles = makeStyles({
     app: { display: "flex", flexDirection: "column", height: "100vh" },
     demoBanner: {
@@ -121,6 +121,7 @@ export function App() {
     const [lastUsage, setLastUsage] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
     const [initializing, setInitializing] = useState(true);
+    const [signedOut, setSignedOut] = useState(false);
     const chatRef = useRef(null);
     // Keep the browser tab title in sync with the selected customer's brand.
     useEffect(() => {
@@ -233,8 +234,17 @@ export function App() {
             : "Your account is no longer available. You'll be signed out now.");
         setBusy(false);
         if (authEnabled())
-            setTimeout(() => signOut(), 3000);
+            setTimeout(() => doSignOut(), 3000);
         return true;
+    }
+    // Sign out locally and show the "signed out" screen (no bounce to login).
+    async function doSignOut() {
+        try {
+            await signOut();
+        }
+        finally {
+            setSignedOut(true);
+        }
     }
     async function send(textOverride) {
         const text = (textOverride ?? input).trim();
@@ -268,6 +278,20 @@ export function App() {
     const color = branding?.primary_color || "#138DDE";
     const suggestions = customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
     const prod = authEnabled();
+    // After signing out, show a calm goodbye screen instead of bouncing the user
+    // straight back to the login mask.
+    if (signedOut) {
+        return (_jsxs("div", { style: {
+                height: "100vh",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 12,
+                textAlign: "center",
+                padding: 24,
+            }, children: [_jsx("img", { src: branding?.logo_url || "/logo.svg", alt: "logo", style: { height: 48, marginBottom: 4 } }), _jsx(Text, { size: 600, weight: "semibold", children: "You've been signed out" }), _jsx(Text, { size: 300, style: { color: tokens.colorNeutralForeground3, maxWidth: 420 }, children: "It's now safe to close this tab." }), _jsx(Button, { appearance: "primary", style: { marginTop: 8, backgroundColor: color }, onClick: () => signIn(), children: "Sign in again" })] }));
+    }
     // While the first sign-in + branding/instances load is in flight, show a
     // full-screen loader so the app doesn't look "ready" with an empty customer.
     if (initializing && !customer) {
@@ -284,7 +308,7 @@ export function App() {
                                             const c = customers.find((x) => x.org_id === d.optionValue);
                                             if (c)
                                                 selectCustomer(c);
-                                        }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), _jsx(Button, { appearance: "transparent", className: styles.refreshBtn, title: "Refresh customer list", "aria-label": "Refresh customer list", disabled: refreshing, icon: _jsx(ArrowClockwise20Regular, { className: refreshing ? styles.spin : undefined }), onClick: () => loadCustomers({ keepSelection: true }) })] })), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text ? _jsx(Markdown, { text: m.text }) : busy ? _jsx(Spinner, { size: "tiny" }) : "" })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
+                                        }, children: customers.map((c) => (_jsx(Option, { value: c.org_id, children: c.name }, c.org_id))) }), _jsx(Button, { appearance: "transparent", className: styles.refreshBtn, title: "Refresh customer list", "aria-label": "Refresh customer list", disabled: refreshing, icon: _jsx(ArrowClockwise20Regular, { className: refreshing ? styles.spin : undefined }), onClick: () => loadCustomers({ keepSelection: true }) })] })), customer && customer.instances.length > 1 && (_jsx(Dropdown, { size: "small", value: customer.instances.find((i) => i.id === instanceId)?.display_name || "", selectedOptions: [instanceId], onOptionSelect: (_, d) => setInstanceId(d.optionValue || ""), children: customer.instances.map((i) => (_jsx(Option, { value: i.id, children: i.display_name }, i.id))) })), getToken() ? (_jsxs(Badge, { color: "success", children: ["org: ", branding?.org_id || customer?.org_id] })) : (_jsx(Badge, { color: "warning", children: "no token" })), prod && (_jsx(Button, { appearance: "transparent", style: { color: "#fff" }, icon: _jsx(SignOut20Regular, {}), title: "Sign out", onClick: () => doSignOut(), children: "Sign out" }))] })] }), err && _jsx(MessageBar, { intent: "error", children: err }), _jsxs("div", { className: styles.chat, ref: chatRef, children: [messages.length === 0 && (_jsxs("div", { className: styles.starter, children: [_jsxs(Text, { align: "center", size: 300, style: { color: tokens.colorNeutralForeground3 }, children: ["Ask ", branding?.org_name || customer?.name, "'s assistant a question."] }), suggestions.length > 0 && (_jsx("div", { className: styles.chips, children: suggestions.map((q, i) => (_jsx("div", { className: styles.chip, style: { borderColor: color, color }, onClick: () => !busy && send(q), children: q }, i))) }))] })), messages.map((m, i) => m.role === "user" ? (_jsx("div", { className: styles.bubbleUser, style: { backgroundColor: color }, children: m.text }, i)) : (_jsxs("div", { className: styles.row, style: { alignSelf: "flex-start" }, children: [_jsx(Avatar, { size: 28, color: "colorful", name: branding?.product_name || "A" }), _jsx("div", { className: styles.bubbleBot, children: m.text ? _jsx(Markdown, { text: m.text }) : busy ? _jsx(Spinner, { size: "tiny" }) : "" })] }, i)))] }), lastUsage && (_jsxs(Text, { size: 100, align: "center", style: { paddingBottom: 4, color: tokens.colorNeutralForeground3 }, children: ["last turn: ", lastUsage.total ?? 0, " tokens (in ", lastUsage.input ?? 0, " / out ", lastUsage.output ?? 0, ")"] })), _jsxs("div", { className: styles.composer, children: [_jsx(Textarea, { style: { flexGrow: 1 }, resize: "vertical", value: input, placeholder: "Type your message\u2026", onChange: (_, d) => setInput(d.value), onKeyDown: (e) => {
                             if (e.key === "Enter" && !e.shiftKey) {
                                 e.preventDefault();
                                 send();

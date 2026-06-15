@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import {
   Tab,
@@ -18,7 +18,7 @@ import {
 import { useBranding } from "./branding";
 import { brandGradient } from "./theme";
 import { getToken, devAdminLogin } from "./api";
-import { authEnabled, currentUser, signOut } from "./auth";
+import { authEnabled, currentUser, signOut, signIn } from "./auth";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { InstancesPage } from "./pages/InstancesPage";
@@ -57,6 +57,7 @@ export function App() {
   const branding = useBranding();
   const loc = useLocation();
   const navigate = useNavigate();
+  const [signedOut, setSignedOut] = useState(false);
 
   // Keep the browser tab title in sync with the configured brand.
   useEffect(() => {
@@ -76,6 +77,41 @@ export function App() {
   const prod = authEnabled();
   const user = prod ? currentUser() : null;
   const userLabel = user?.username || user?.name || "";
+
+  async function doSignOut() {
+    try {
+      await signOut();
+    } finally {
+      setSignedOut(true);
+    }
+  }
+
+  // After signing out, show a calm goodbye screen instead of the login mask.
+  if (signedOut) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          textAlign: "center",
+          padding: 24,
+        }}
+      >
+        <img src={branding.LOGO_URL} alt="logo" style={{ height: 48, marginBottom: 4 }} />
+        <Text size={600} weight="semibold">You've been signed out</Text>
+        <Text size={300} style={{ color: tokens.colorNeutralForeground3, maxWidth: 420 }}>
+          It's now safe to close this tab.
+        </Text>
+        <Button appearance="primary" style={{ marginTop: 8 }} onClick={() => signIn()}>
+          Sign in again
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.shell}>
@@ -101,7 +137,7 @@ export function App() {
               </MenuTrigger>
               <MenuPopover>
                 <MenuList>
-                  <MenuItem onClick={() => signOut()}>Sign out</MenuItem>
+                  <MenuItem onClick={() => doSignOut()}>Sign out</MenuItem>
                 </MenuList>
               </MenuPopover>
             </Menu>

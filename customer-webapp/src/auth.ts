@@ -79,7 +79,34 @@ export async function acquireApiToken(): Promise<string> {
   }
 }
 
+/**
+ * Sign out **locally**: clear the MSAL cache + our cached API token, but do NOT
+ * navigate to the Microsoft logout page. The app then shows its own "signed out"
+ * screen (so the user isn't bounced straight back to the login mask).
+ */
 export async function signOut(): Promise<void> {
   if (!authEnabled()) return;
-  await client().logoutRedirect();
+  const pca = client();
+  await pca.initialize();
+  const account = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  try {
+    await pca.logoutRedirect({
+      account: account ?? undefined,
+      onRedirectNavigate: () => false, // clear local session without leaving the SPA
+    });
+  } catch {
+    /* best-effort: fall through to clearing our token */
+  }
+  setToken("");
+}
+
+/** Start a fresh interactive sign-in (used by the "Sign in again" link). */
+export async function signIn(): Promise<void> {
+  if (!authEnabled()) {
+    window.location.reload();
+    return;
+  }
+  const pca = client();
+  await pca.initialize();
+  await pca.loginRedirect({ scopes: [API_SCOPE] });
 }

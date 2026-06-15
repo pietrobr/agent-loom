@@ -12,7 +12,7 @@ import {
   Avatar,
   MessageBar,
 } from "@fluentui/react-components";
-import { Send24Filled, ArrowClockwise20Regular } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
 import {
@@ -27,7 +27,7 @@ import {
   streamChat,
   ApiError,
 } from "./api";
-import { authEnabled, signOut } from "./auth";
+import { authEnabled, signOut, signIn } from "./auth";
 
 const useStyles = makeStyles({
   app: { display: "flex", flexDirection: "column", height: "100vh" },
@@ -150,6 +150,7 @@ export function App() {
   const [lastUsage, setLastUsage] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [initializing, setInitializing] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
 
   // Keep the browser tab title in sync with the selected customer's brand.
@@ -263,8 +264,17 @@ export function App() {
         : "Your account is no longer available. You'll be signed out now."
     );
     setBusy(false);
-    if (authEnabled()) setTimeout(() => signOut(), 3000);
+    if (authEnabled()) setTimeout(() => doSignOut(), 3000);
     return true;
+  }
+
+  // Sign out locally and show the "signed out" screen (no bounce to login).
+  async function doSignOut() {
+    try {
+      await signOut();
+    } finally {
+      setSignedOut(true);
+    }
   }
 
   async function send(textOverride?: string) {
@@ -303,6 +313,38 @@ export function App() {
   const suggestions =
     customer?.instances.find((i) => i.id === instanceId)?.suggested_questions || [];
   const prod = authEnabled();
+
+  // After signing out, show a calm goodbye screen instead of bouncing the user
+  // straight back to the login mask.
+  if (signedOut) {
+    return (
+      <div
+        style={{
+          height: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 12,
+          textAlign: "center",
+          padding: 24,
+        }}
+      >
+        <img src={branding?.logo_url || "/logo.svg"} alt="logo" style={{ height: 48, marginBottom: 4 }} />
+        <Text size={600} weight="semibold">You've been signed out</Text>
+        <Text size={300} style={{ color: tokens.colorNeutralForeground3, maxWidth: 420 }}>
+          It's now safe to close this tab.
+        </Text>
+        <Button
+          appearance="primary"
+          style={{ marginTop: 8, backgroundColor: color }}
+          onClick={() => signIn()}
+        >
+          Sign in again
+        </Button>
+      </div>
+    );
+  }
 
   // While the first sign-in + branding/instances load is in flight, show a
   // full-screen loader so the app doesn't look "ready" with an empty customer.
@@ -393,6 +435,17 @@ export function App() {
             <Badge color="success">org: {branding?.org_id || customer?.org_id}</Badge>
           ) : (
             <Badge color="warning">no token</Badge>
+          )}
+          {prod && (
+            <Button
+              appearance="transparent"
+              style={{ color: "#fff" }}
+              icon={<SignOut20Regular />}
+              title="Sign out"
+              onClick={() => doSignOut()}
+            >
+              Sign out
+            </Button>
           )}
         </div>
       </header>
