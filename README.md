@@ -595,15 +595,18 @@ azd env get-values -e agentloom-prod | Select-String "WORKFORCE_AUDIENCE|CIAM_AU
 
 #### Step 3 — Deploy
 
-```bash
-azd up
+```powershell
+azd up -e agentloom-prod --no-prompt
 ```
 
-`AUTH_MODE=production` is injected into the backend (and `ALLOW_DEV_TOKENS=false`),
-and the `AUTH_*`/MSAL settings into both SPAs (read at runtime from
-`env-config.js`, like `API_BASE` — no rebuild needed). **The post-deploy hook
-skips seeding in production** (seeding needs an interactive admin sign-in, which
-must not run inside `azd up`) and prints the manual seed command instead.
+`--no-prompt` lets azd create the resource group (`rg-<env-name>`) and accept the
+defaults without interactive questions; drop it if you'd rather pick the resource
+group yourself. `AUTH_MODE=production` is injected into the backend (and
+`ALLOW_DEV_TOKENS=false`), and the `AUTH_*`/MSAL settings into both SPAs (read at
+runtime from `env-config.js`, like `API_BASE` — no rebuild needed). **The
+post-deploy hook skips seeding in production** (seeding needs an interactive admin
+sign-in, which must not run inside `azd up`) and prints the manual seed command
+instead.
 
 #### Step 3b — Provisioning secret in Key Vault (automatic)
 
