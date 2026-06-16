@@ -251,16 +251,24 @@ export function App() {
     chatRef.current?.scrollTo({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
-  // Friendly lock-out: a disabled/removed customer (403) gets a clear message
-  // and is signed out, instead of a raw error. Returns true if handled.
+  // Friendly lock-out: a disabled/removed customer (403), or a user not linked
+  // to any organization yet (403 account_unassigned), gets a clear message and
+  // is signed out, instead of a raw error. Returns true if handled.
   function handleLockout(status?: number, code?: string): boolean {
-    if (status !== 403 || (code !== "account_disabled" && code !== "account_removed")) {
+    if (
+      status !== 403 ||
+      (code !== "account_disabled" &&
+        code !== "account_removed" &&
+        code !== "account_unassigned")
+    ) {
       return false;
     }
     setMessages([]);
     setErr(
       code === "account_disabled"
         ? "Your access has been turned off by your administrator. You'll be signed out now."
+        : code === "account_unassigned"
+        ? "Your account isn't linked to any organization yet. Please contact your administrator, then sign in again."
         : "Your account is no longer available. You'll be signed out now."
     );
     setBusy(false);

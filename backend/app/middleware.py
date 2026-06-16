@@ -13,7 +13,7 @@ from typing import Callable
 from fastapi import HTTPException, Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .security import Principal, verify_token
+from .security import Principal, verify_token, UnassignedCustomerError
 from .config import get_settings
 from .services import cosmos
 
@@ -44,6 +44,14 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
         if auth.lower().startswith("bearer "):
             try:
                 principal = verify_token(auth.split(" ", 1)[1].strip(), get_settings())
+            except UnassignedCustomerError:
+                # Valid token, but the user isn't linked to any organization yet
+                # (no cust-<org_id> group). Give a clear, actionable 403 instead
+                # of a confusing "missing or invalid token".
+                return _forbidden(
+                    "your account is not linked to any organization",
+                    code="account_unassigned",
+                )
             except HTTPException:
                 principal = None
 

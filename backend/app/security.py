@@ -32,6 +32,21 @@ log = logging.getLogger(__name__)
 bearer = HTTPBearer(auto_error=False)
 
 
+class UnassignedCustomerError(HTTPException):
+    """The token is valid (signature/issuer/audience OK) but the customer user
+    is not mapped to any tenant — i.e. they belong to no ``cust-<org_id>``
+    security group. This is distinct from an *invalid* token: the user signed in
+    correctly but isn't linked to an organization yet, so we surface a clear,
+    actionable 403 (``account_unassigned``) instead of a generic 401.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            status.HTTP_403_FORBIDDEN,
+            "account is not linked to any organization",
+        )
+
+
 @dataclass
 class Principal:
     sub: str
@@ -109,10 +124,7 @@ def _verify_production(token: str, settings: Settings) -> Principal:
             )
             org_id = _resolve_customer_org(payload, settings)
             if not org_id:
-                raise HTTPException(
-                    status.HTTP_401_UNAUTHORIZED,
-                    "customer token is not mapped to any tenant group",
-                )
+                raise UnassignedCustomerError()
             return Principal(
                 sub=str(payload.get("sub", "user")),
                 org_id=str(org_id),
