@@ -814,6 +814,84 @@ Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 
 ---
 
+## Contributing
+
+Contributions are welcome and appreciated — whether it's a bug report, a
+documentation fix, a new template, or a feature.
+
+**Ways to contribute**
+
+- 🐛 **Report bugs** by opening an issue. Include reproduction steps, expected
+  vs. actual behaviour, and relevant logs (with secrets redacted).
+- 💡 **Propose features** or improvements by opening an issue first, so the
+  design can be discussed before you invest time in a PR.
+- 📚 **Improve the docs** — typos, clarifications, missing setup steps, and new
+  walkthroughs are all valuable.
+- 🧩 **Share templates** — add reusable agent templates under
+  `sample-templates/` or example customers under `sample-customers/`.
+
+**Development workflow**
+
+1. **Fork** the repository and create a topic branch from `main`
+   (e.g. `feat/agentic-retrieval-cache` or `fix/cost-projection-rounding`).
+2. **Make your change** in a focused commit set. Keep PRs small and scoped to
+   one logical change where possible.
+3. **Test locally** before opening a PR:
+   - Backend: run the app under `backend/` and exercise the affected routers.
+   - Frontends: build `admin-designer/` and `customer-webapp/` (`npm run build`).
+   - Infra: validate Bicep changes (`az bicep build -f infra/main.bicep`).
+   - End-to-end: where relevant, run `scripts/smoke_e2e.py`.
+4. **Open a pull request** against `main` with a clear title and description of
+   *what* changed and *why*. Reference any related issue (e.g. `Closes #123`).
+5. A maintainer will review; please respond to feedback and keep the branch up
+   to date with `main`.
+
+**Guidelines**
+
+- Match the existing code style and project structure; avoid unrelated
+  refactors in the same PR.
+- Never commit secrets, credentials, or customer data. Use environment
+  variables and Key Vault as the rest of the project does.
+- Update the README or relevant docs when you change behaviour or add
+  configuration.
+
+By contributing, you agree that your contributions will be licensed under the
+same MIT License that covers this project.
+
+---
+
 ## License
 
-MIT. Contributions welcome.
+This project is licensed under the **MIT License** — a permissive open-source
+license that lets you use, copy, modify, merge, publish, distribute,
+sublicense, and sell copies of the software, provided the copyright notice and
+permission notice are included in all copies or substantial portions of the
+software. The software is provided *"as is"*, without warranty of any kind.
+
+```
+MIT License
+
+Copyright (c) 2026 AgentLoom contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+> **Note:** AgentLoom builds on third-party services (Microsoft Foundry, Azure
+> AI Search, etc.) that are governed by their own terms; the MIT License covers
+> only the AgentLoom source code in this repository.
