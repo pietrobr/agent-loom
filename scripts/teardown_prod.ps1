@@ -11,7 +11,10 @@
     * CIAM tenant      : app registrations "AgentLoom Customer" and
                          "AgentLoom Provisioning" (+ their SPs)
     * CIAM tenant      : the demo test users (demo-horizon / demo-novatech) and
-                         the per-customer groups (cust-*)   [unless -KeepTestUsersAndGroups]
+                         the **demo** groups (cust-horizon-travel / cust-novatech)
+                         only — real customers' cust-<org_id> groups are kept
+                         unless you pass -RemoveAllCustomerGroups.
+                         [all of the above skipped with -KeepTestUsersAndGroups]
 
   It NEVER touches the `agentloom-dev` environment (a hard guard refuses to run
   `azd down` against it).
@@ -35,6 +38,10 @@
   # Keep the demo users/groups; only remove app regs + Azure resources:
   ./scripts/teardown_prod.ps1 -WorkforceTenant ... -CiamTenant ... -KeepTestUsersAndGroups
 
+.EXAMPLE
+  # Throwaway env: also delete EVERY cust-* group (incl. real customers):
+  ./scripts/teardown_prod.ps1 -WorkforceTenant ... -CiamTenant ... -RemoveAllCustomerGroups
+
 .NOTES
   Requires the Azure CLI (az) and the Azure Developer CLI (azd). You must be able
   to sign in to BOTH tenants as a Global Administrator. Deleting directory
@@ -51,6 +58,11 @@ param(
   [string]   $ProvisioningAppName = "AgentLoom Provisioning",
   [string[]] $TestUserPrefixes = @("demo-horizon", "demo-novatech"),
   [string]   $GroupPrefix     = "cust-",
+  # By default ONLY the known demo groups are removed, so real customers' groups
+  # are never deleted by accident. Pass -RemoveAllCustomerGroups to wipe every
+  # cust-* group in the CIAM tenant instead.
+  [string[]] $DemoGroups      = @("cust-horizon-travel", "cust-novatech"),
+  [switch]   $RemoveAllCustomerGroups,
   [switch]   $KeepTestUsersAndGroups,                               # keep demo-* users + cust-* groups
   [switch]   $SkipAzure,                                            # skip `azd down`
   [switch]   $SkipIdentity,                                         # skip Entra cleanup
@@ -169,9 +181,23 @@ function Remove-CustomerGroups {
   param([string]$TenantId, [string]$Prefix)
   $groups = Invoke-Graph $TenantId GET "$graph/groups?`$select=id,displayName,mailNickname&`$top=999"
   if (-not $groups -or $groups.value.Count -eq 0) { Write-Host "  no groups found — skipped"; return }
-  $matches = $groups.value | Where-Object { $_.mailNickname -like "$Prefix*" }
-  if (-not $matches -or @($matches).Count -eq 0) { Write-Host "  no '$Prefix*' groups — skipped"; return }
-  foreach ($g in $matches) {
+
+  if ($RemoveAllCustomerGroups) {
+    # Wipe EVERY cust-* group (use only when tearing down a throwaway env).
+    $targets = $groups.value | Where-Object { $_.mailNickname -like "$Prefix*" }
+    if (-not $targets -or @($targets).Count -eq 0) { Write-Host "  no '$Prefix*' groups — skipped"; return }
+  } else {
+    # Conservative default: only the known demo groups, so real customers'
+    # cust-<org_id> groups are never deleted by accident.
+    $targets = $groups.value | Where-Object { $DemoGroups -contains $_.mailNickname }
+    if (-not $targets -or @($targets).Count -eq 0) { Write-Host "  no demo groups present — skipped"; return }
+    $others = $groups.value | Where-Object { $_.mailNickname -like "$Prefix*" -and $DemoGroups -notcontains $_.mailNickname }
+    if ($others -and @($others).Count -gt 0) {
+      Write-Host "  NOTE: $(@($others).Count) other '$Prefix*' group(s) left intact (real customers). Use -RemoveAllCustomerGroups to remove them too." -ForegroundColor Yellow
+    }
+  }
+
+  foreach ($g in $targets) {
     Invoke-Graph $TenantId DELETE "$graph/groups/$($g.id)" | Out-Null
     Write-Host "  deleted group '$($g.mailNickname)' ($($g.id))" -ForegroundColor Green
     if ($PurgeDeletedObjects) {
@@ -222,7 +248,11 @@ if (-not $SkipIdentity) {
   Write-Host "  [CIAM]      app registrations '$CustomerAppName', '$ProvisioningAppName' (+ SPs)"
   if (-not $KeepTestUsersAndGroups) {
     Write-Host "  [CIAM]      test users: $($TestUserPrefixes -join ', ')"
-    Write-Host "  [CIAM]      groups matching '$GroupPrefix*' (e.g. cust-horizon-travel, cust-novatech, cust-globex)"
+    if ($RemoveAllCustomerGroups) {
+      Write-Host "  [CIAM]      ALL '$GroupPrefix*' groups (incl. real customers!) — -RemoveAllCustomerGroups" -ForegroundColor Red
+    } else {
+      Write-Host "  [CIAM]      demo groups only: $($DemoGroups -join ', ') (real customers' groups are kept)"
+    }
   } else {
     Write-Host "  [CIAM]      (keeping demo users + cust-* groups — -KeepTestUsersAndGroups)"
   }
