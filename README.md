@@ -77,8 +77,8 @@ flowchart TB
       KV[("Key Vault")]
     end
 
-    CW -- "Bearer JWT · org_id claim" --> WEB
-    AD -- "admin JWT" --> WEB
+    CW -- "Bearer JWT<br/>dev: HS256 demo · prod: groups → org_id" --> WEB
+    AD -- "admin JWT<br/>dev: HS256 demo · prod: RS256/Entra" --> WEB
 
     API -- "org_id filter" --> COS
     API -- "knowledge blobs" --> BL
@@ -91,14 +91,24 @@ flowchart TB
 
     MI -. "least-privilege RBAC" .-> COS & BL & SR & FDRY & KV
 
+    subgraph Modes["Auth modes (AUTH_MODE)"]
+      direction LR
+      DEV{{"dev — HS256 demo tokens<br/>+ demo switcher"}}
+      PROD{{"production — Entra ID + External ID<br/>RS256 / JWKS · groups → org_id"}}
+    end
+
     classDef store fill:#fff6e6,stroke:#d89a00,color:#5b4300;
     classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
     classDef ai fill:#eafaf1,stroke:#1b9e5a,color:#0c4a2c;
     classDef ident fill:#f3e9ff,stroke:#8a3ffc,color:#3d1a73;
+    classDef dev fill:#fff3f0,stroke:#d9531e,color:#7a2d0c;
+    classDef prod fill:#e9f7ef,stroke:#1b9e5a,color:#0c4a2c;
     class COS,BL,KV store;
     class WEB,API compute;
     class SR,AG,CHAT,EMB ai;
     class MI ident;
+    class DEV dev;
+    class PROD prod;
 ```
 
 **Private networking:** Cosmos DB and Blob Storage have **public network access
@@ -129,6 +139,7 @@ incl. `admin`, and `org_id` is set to `_system`).
 
 ```mermaid
 flowchart LR
+    PRODTAG["PRODUCTION · AUTH_MODE=production<br/>RS256 / JWKS · dev tokens disabled"]
     subgraph Admins["Provider staff"]
       OPS["Admin / operators"]
     end
@@ -178,9 +189,11 @@ flowchart LR
     classDef store fill:#fff6e6,stroke:#d89a00,color:#5b4300;
     classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
     classDef idp fill:#f3e9ff,stroke:#8a3ffc,color:#3d1a73;
+    classDef prod fill:#e9f7ef,stroke:#1b9e5a,color:#0c4a2c;
     class DA,DB,DC store;
     class AD,FE,API compute;
     class UF,CLAIM,ADAPP idp;
+    class PRODTAG prod;
 ```
 
 Adopting Entra requires changing **only one file**: the token-verification
@@ -192,8 +205,9 @@ keys from your Entra tenants' JWKS endpoints and uses them to verify each
 token's signature, issuer and audience. (Why RS256 + JWKS is the secure,
 no-shared-secret choice is explained in §6.) Nothing else moves: the tenant
 middleware, the per-`org_id` isolation and all routers keep working unchanged,
-because they only ever read the `org_id` / `roles` claims from the validated
-token — they don't care *how* it was validated. See
+because they only ever read the resolved `org_id` / `roles` from the validated
+token — they don't care *how* it was validated or how the `org_id` was resolved
+(in production it comes from the customer's `groups` claim). See
 [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
@@ -448,11 +462,14 @@ subscription, while admins and customers authenticate against their own tenants.
 
 ```mermaid
 flowchart LR
+    PRODTAG["PRODUCTION · AUTH_MODE=production<br/>RS256 / JWKS · dev tokens disabled"]
     Admin["Provider admin<br/>workforce Entra ID"] -->|"MSAL · token v2<br/>roles: [admin]"| Console["SaaS Admin Console<br/>(admin-designer)"]
     Cust["End customer<br/>Entra External ID (CIAM)"] -->|"MSAL · token v2<br/>groups: [cust-acme]"| Chat["Customer chat<br/>(customer-webapp)"]
     Console --> API["Backend (FastAPI)<br/>RS256 / JWKS validation<br/>of BOTH issuers"]
     Chat --> API
     API -->|"group → org_id → per-tenant isolation"| Cosmos[("Cosmos / Search / Blob")]
+    classDef prod fill:#e9f7ef,stroke:#1b9e5a,color:#0c4a2c;
+    class PRODTAG prod;
 ```
 
 Two **app registrations** are required — one per tenant — because admins and
