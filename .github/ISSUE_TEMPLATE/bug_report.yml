@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a problem so we can fix it
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug. Please **do not include secrets,
+        credentials, or customer data** in this report.
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the bug
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: How can we reproduce the behaviour?
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected component
+      options:
+        - backend
+        - admin-designer
+        - customer-webapp
+        - infra (Bicep)
+        - scripts / docs
+        - not sure
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Environment & logs
+      description: OS, deployment mode (dev/production), and any relevant logs (secrets redacted).
