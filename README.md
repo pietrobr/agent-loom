@@ -459,6 +459,21 @@ backend never "lives" in a login tenant — it just validates tokens against eac
 tenant's public **JWKS** endpoint. So you deploy the infra wherever you have a
 subscription, while admins and customers authenticate against their own tenants.
 
+> **Prerequisite — make `azd` follow the Azure CLI sign-in (multi-tenant safety).**
+> `setup_identity.ps1` signs the Azure CLI into the *identity* tenants to call
+> Microsoft Graph. If `azd` keeps its own separate session, it can end up pointed
+> at an identity tenant (e.g. `paint4kids`) that can't access your *resource*
+> subscription, and `azd up` then fails with *"failed to resolve user … access to
+> subscription"*. Run this **once** so `azd` always uses the Azure CLI's active
+> account (single source of truth):
+>
+> ```powershell
+> azd config set auth.useAzCliAuth "true"
+> ```
+>
+> The setup scripts restore the Azure CLI to your original (resource) subscription
+> when they finish, so after Step 1 you can run `azd up` directly.
+
 ```mermaid
 flowchart LR
     PRODTAG["PRODUCTION · AUTH_MODE=production<br/>RS256 / JWKS · dev tokens disabled"]
@@ -515,12 +530,30 @@ in turn (browser prompt).
 > number of interactive sign-ins.
 
 ```powershell
+# 1. Create the azd environment (resource subscription, region, name prefix):
+azd env new agentloom-prod
+azd env set AZURE_SUBSCRIPTION_ID <your-sub-id>
+azd env set AZURE_LOCATION swedencentral
+azd env set AZURE_RESOURCE_PREFIX agentloom
+#    Catalog seeding scope (templates only, no demo customers):
+azd env set SEED_TEMPLATES true
+azd env set SEED_DEMO_CUSTOMERS false
+
+# 2. Provision the identities AND write all their settings into that env
+#    (-AzdEnv => no copy/paste of the printed values):
 ./scripts/setup_identity.ps1 `
   -WorkforceTenant contoso-saas.onmicrosoft.com `
   -CiamTenant      agentloomcustomers.onmicrosoft.com `
   -AdminUpn        admin@contoso-saas.onmicrosoft.com `
-  -SeedTestUsers     # optional: creates demo-horizon / demo-novatech test users
+  -AzdEnv          agentloom-prod `
+  # -SeedTestUsers   # optional: also create demo-horizon / demo-novatech users + groups
 ```
+
+When you pass **`-AzdEnv <name>`**, the script writes every `AUTH_MODE` /
+`WORKFORCE_*` / `CIAM_*` / `PROVISIONING_CLIENT_ID` / `VITE_*` value **straight
+into that azd environment** — there is nothing to copy by hand (this also avoids
+the easy mistake of dropping a line when pasting). Omit `-AzdEnv` and it just
+prints the equivalent `azd env set …` lines instead.
 
 What it creates:
 
@@ -540,20 +573,18 @@ What it creates:
   the per-customer group when customers are added/removed in the Console. The
   secret is **printed once** — store it in Key Vault (see Step 3b).
 
-At the end it prints the exact `azd env set …` lines (all ids/audiences/authorities).
+The CIAM **provisioning secret** is always *printed* (never written to the env or
+to disk) — copy it once for Step 3b.
 
-#### Step 2 — Wire the environment
+#### Step 2 — Verify the environment
 
-Create a fresh azd env and apply the printed settings:
+Everything is already wired by Step 1 (`-AzdEnv`). Confirm it:
 
-```bash
-azd env new agentloom-prod
-azd env set AZURE_SUBSCRIPTION_ID <your-sub-id>
-azd env set AZURE_LOCATION swedencentral
-# …plus every "azd env set …" line the script printed (table below).
+```powershell
+azd env get-values -e agentloom-prod | Select-String "WORKFORCE_AUDIENCE|CIAM_AUDIENCE|PROVISIONING_CLIENT_ID"
 ```
 
-| Setting | `azd env set …` | Notes |
+| Setting | env key | Notes |
 |---|---|---|
 | Auth mode | `AUTH_MODE production` | Disables dev tokens + demo switcher |
 | Workforce tenant | `WORKFORCE_TENANT_ID`, `WORKFORCE_AUDIENCE` | Admin app reg client id = audience |
@@ -574,24 +605,26 @@ and the `AUTH_*`/MSAL settings into both SPAs (read at runtime from
 skips seeding in production** (seeding needs an interactive admin sign-in, which
 must not run inside `azd up`) and prints the manual seed command instead.
 
-#### Step 3b — Store the provisioning secret in Key Vault
+#### Step 3b — Provisioning secret in Key Vault (automatic)
 
 The backend needs the *AgentLoom Provisioning* app's secret to create/delete the
-per-customer `cust-<org_id>` security groups (the groups model). The script
-printed it once; store it in the deployment's Key Vault under the name the
-backend expects (`PROVISIONING_SECRET_NAME`, default `ciam-provisioning-secret`):
+per-customer `cust-<org_id>` security groups (the groups model). When you ran
+Step 1 with `-AzdEnv`, the script staged it in the azd env as `PROVISIONING_SECRET`,
+and **`azd up` writes it into Key Vault for you** via a Bicep secure parameter —
+a control-plane write that succeeds even when the vault's public network access
+is locked down by policy (unlike `az keyvault secret set` from your machine).
+
+Nothing to do here. After the first deploy you may clear the staged copy:
 
 ```powershell
-$kv = (azd env get-value KEYVAULT_URI) -replace 'https://','' -replace '\.vault\.azure\.net/?',''
-az keyvault secret set --vault-name $kv --name ciam-provisioning-secret --value "<the-printed-secret>"
+azd env set PROVISIONING_SECRET "" -e agentloom-prod
 ```
 
-The backend reads it at runtime via its **managed identity** (already granted
-*Key Vault Secrets User*) — the secret never leaves Key Vault. `PROVISIONING_CLIENT_ID`
-+ this secret are **required** for the groups model: without them the backend
-cannot create the per-customer `cust-<org_id>` groups when you onboard a customer.
-Rotate the secret by setting a new version in Key Vault and updating the app
-registration.
+> If you ran Step 1 **without** `-AzdEnv`, set it once before `azd up`:
+> `azd env set PROVISIONING_SECRET "<the-printed-secret>"`. The backend reads it
+> at runtime via its **managed identity** (granted *Key Vault Secrets User*) — the
+> secret never leaves Key Vault. Rotate it by setting a new version in Key Vault
+> and updating the app registration.
 
 #### Step 4 — Add the deployed redirect URIs
 

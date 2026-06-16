@@ -136,6 +136,13 @@ function Ensure-ServicePrincipal {
 
 Write-Host "AgentLoom — production identity provisioning" -ForegroundColor Yellow
 
+# Remember the caller's active az subscription so we can restore it at the end.
+# Connect-Tenant switches the az CLI context to the workforce / CIAM tenants to
+# call Microsoft Graph; without restoring it, the terminal would be left pointed
+# at an identity tenant (e.g. paint4kids) that can't access the resource
+# subscription, and the subsequent `azd up` would fail to resolve the principal.
+$script:OriginalSub = (az account show --query id -o tsv 2>$null)
+
 # --------------------------------------------------------------------------- #
 # 1) WORKFORCE tenant — admin SPA + app role 'admin'                           #
 # --------------------------------------------------------------------------- #
@@ -319,36 +326,81 @@ if ($SeedTestUsers) {
 # --------------------------------------------------------------------------- #
 # 4) Output the azd env wiring                                                 #
 # --------------------------------------------------------------------------- #
+# All the settings the deployment needs, as KEY -> VALUE pairs. We either write
+# them straight into an azd environment (-AzdEnv, no copy/paste) or print the
+# equivalent `azd env set` lines for you to run.
+$envPairs = [ordered]@{
+  AUTH_MODE             = 'production'
+  WORKFORCE_TENANT_ID   = $wfTenantId
+  WORKFORCE_AUDIENCE    = $adminApp.appId
+  CIAM_TENANT_ID        = $ciamTenantId
+  CIAM_SUBDOMAIN        = $ciamSubdomain
+  CIAM_AUDIENCE         = $custApp.appId
+  PROVISIONING_CLIENT_ID = $provApp.appId
+  VITE_ADMIN_CLIENT_ID    = $adminApp.appId
+  VITE_ADMIN_AUTHORITY    = "https://login.microsoftonline.com/$wfTenantId"
+  VITE_ADMIN_API_SCOPE    = "api://$($adminApp.appId)/access_as_user"
+  VITE_CUSTOMER_CLIENT_ID = $custApp.appId
+  VITE_CUSTOMER_AUTHORITY = "https://$ciamSubdomain.ciamlogin.com/$ciamTenantId"
+  VITE_CUSTOMER_API_SCOPE = "api://$($custApp.appId)/access_as_user"
+}
+
 Write-Host "`n=========================================================" -ForegroundColor Yellow
-Write-Host " Provisioning complete. Wire the deployment with:" -ForegroundColor Yellow
-Write-Host "=========================================================" -ForegroundColor Yellow
-@"
-azd env set AUTH_MODE production
-azd env set WORKFORCE_TENANT_ID $wfTenantId
-azd env set WORKFORCE_AUDIENCE  $($adminApp.appId)
-azd env set CIAM_TENANT_ID      $ciamTenantId
-azd env set CIAM_SUBDOMAIN      $ciamSubdomain
-azd env set CIAM_AUDIENCE       $($custApp.appId)
-azd env set PROVISIONING_CLIENT_ID $($provApp.appId)
+if ($AzdEnv) {
+  Write-Host " Writing configuration into azd env '$AzdEnv' ..." -ForegroundColor Yellow
+  Write-Host "=========================================================" -ForegroundColor Yellow
+  # Make sure the env exists (create if missing), then set every value. Writing
+  # via this loop avoids the multi-line copy/paste that can silently drop a line.
+  azd env list --output json 2>$null | Out-Null
+  $exists = (azd env list 2>$null | Select-String -SimpleMatch $AzdEnv)
+  if (-not $exists) {
+    azd env new $AzdEnv --no-prompt 2>$null | Out-Null
+    Write-Host "  created azd env '$AzdEnv'" -ForegroundColor Green
+  }
+  foreach ($k in $envPairs.Keys) {
+    azd env set $k $envPairs[$k] -e $AzdEnv 2>$null | Out-Null
+    Write-Host "  set $k"
+  }
+  # Stage the provisioning secret in the env too, so `azd up` seeds it straight
+  # into Key Vault via a Bicep secure parameter (control-plane write — works even
+  # when the vault's public access is disabled). It lives only in the local,
+  # git-ignored azd .env and can be cleared after the first deploy.
+  azd env set PROVISIONING_SECRET $provSecret -e $AzdEnv 2>$null | Out-Null
+  Write-Host "  set PROVISIONING_SECRET (will be written to Key Vault by 'azd up')"
+  Write-Host "  done. Verify with: azd env get-values -e $AzdEnv" -ForegroundColor Green
+} else {
+  Write-Host " Provisioning complete. Wire the deployment with:" -ForegroundColor Yellow
+  Write-Host "  (or re-run with -AzdEnv <name> to write these automatically)" -ForegroundColor DarkGray
+  Write-Host "=========================================================" -ForegroundColor Yellow
+  foreach ($k in $envPairs.Keys) { Write-Host "azd env set $k $($envPairs[$k])" }
+}
 
-# Frontends (MSAL):
-azd env set VITE_ADMIN_CLIENT_ID    $($adminApp.appId)
-azd env set VITE_ADMIN_AUTHORITY    https://login.microsoftonline.com/$wfTenantId
-azd env set VITE_ADMIN_API_SCOPE    api://$($adminApp.appId)/access_as_user
-azd env set VITE_CUSTOMER_CLIENT_ID $($custApp.appId)
-azd env set VITE_CUSTOMER_AUTHORITY https://$ciamSubdomain.ciamlogin.com/$ciamTenantId
-azd env set VITE_CUSTOMER_API_SCOPE api://$($custApp.appId)/access_as_user
-"@ | Write-Host
-
-Write-Host "`n--- CIAM provisioning secret (store in Key Vault AFTER azd up) ----------" -ForegroundColor Yellow
-Write-Host "  Provisioning appId: $($provApp.appId)"
-Write-Host "  Client secret     : $provSecret"
-Write-Host "  Once the Key Vault exists (after 'azd up'), store it as the secret"
-Write-Host "  name the backend expects (default 'ciam-provisioning-secret'):"
-Write-Host ""
-Write-Host "    az keyvault secret set --vault-name <kv-name> ``"
-Write-Host "      --name ciam-provisioning-secret --value `"$provSecret`""
-Write-Host "  (kv-name = azd env get-value KEYVAULT_URI → the host label, e.g. agentloomagentloom-prodk)"
+if ($AzdEnv) {
+  Write-Host "`n--- CIAM provisioning secret ----------------------------------------" -ForegroundColor Yellow
+  Write-Host "  Staged in azd env '$AzdEnv' as PROVISIONING_SECRET — 'azd up' will write"
+  Write-Host "  it into Key Vault automatically. After the first deploy you may clear it:"
+  Write-Host "    azd env set PROVISIONING_SECRET '' -e $AzdEnv"
+  Write-Host "  (Keep a copy if you want to rotate it later: $provSecret)" -ForegroundColor DarkGray
+} else {
+  Write-Host "`n--- CIAM provisioning secret (store in Key Vault AFTER azd up) ----------" -ForegroundColor Yellow
+  Write-Host "  Provisioning appId: $($provApp.appId)"
+  Write-Host "  Client secret     : $provSecret"
+  Write-Host "  Either re-run this script with -AzdEnv <name> (auto-seeds it via azd up),"
+  Write-Host "  or set it in the env yourself so 'azd up' writes it to Key Vault:"
+  Write-Host ""
+  Write-Host "    azd env set PROVISIONING_SECRET `"$provSecret`" -e <env>"
+  Write-Host ""
+  Write-Host "  (Alternatively store it directly once the vault exists:"
+  Write-Host "    az keyvault secret set --vault-name <kv-name> --name ciam-provisioning-secret --value `"$provSecret`" )"
+}
 
 Write-Host "`nNOTE: after `azd up`, register the deployed SPA URLs as redirect URIs" -ForegroundColor Yellow
 Write-Host "      by running:  ./scripts/add_redirect_uris.ps1 -WorkforceTenant $WorkforceTenant -CiamTenant $CiamTenant" -ForegroundColor Yellow
+
+# Restore the caller's original az subscription so the next command (`azd up`)
+# runs against the resource subscription, not an identity tenant.
+if ($script:OriginalSub) {
+  az account set --subscription $script:OriginalSub 2>$null | Out-Null
+  $restored = (az account show --query name -o tsv 2>$null)
+  Write-Host "`nRestored az context to subscription: $restored" -ForegroundColor DarkGray
+}

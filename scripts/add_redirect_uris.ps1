@@ -107,6 +107,11 @@ if (-not $adminUrl -and -not $customerUrl) {
 Write-Host "  admin app    : $adminAppId -> $adminUrl"
 Write-Host "  customer app : $custAppId -> $customerUrl"
 
+# Remember the caller's active az subscription; Connect-Tenant switches context
+# to the identity tenants, and we restore it at the end so the next command runs
+# against the resource subscription again.
+$originalSub = (az account show --query id -o tsv 2>$null)
+
 Write-Host "`n--- Workforce tenant (admin app) ---" -ForegroundColor Cyan
 Connect-Tenant $WorkforceTenant
 Add-SpaRedirect -AppId $adminAppId -Origin $adminUrl -Label "admin"
@@ -116,3 +121,7 @@ Connect-Tenant $CiamTenant
 Add-SpaRedirect -AppId $custAppId -Origin $customerUrl -Label "customer"
 
 Write-Host "`nDone. MSAL sign-in will now accept the deployed SPA origins." -ForegroundColor Green
+
+if ($originalSub) {
+  az account set --subscription $originalSub 2>$null | Out-Null
+}

@@ -4,6 +4,12 @@ param tags object
 param backendPrincipalId string
 param deployerPrincipalId string
 
+@description('Optional: name of the CIAM provisioning secret to seed at deploy time.')
+param provisioningSecretName string = 'ciam-provisioning-secret'
+@description('Optional: value of the CIAM provisioning secret. Empty = do not create/update it (the control-plane write works even when public network access is disabled).')
+@secure()
+param provisioningSecretValue string = ''
+
 resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
   name: name
   location: location
@@ -46,6 +52,19 @@ resource deployerKvRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = i
     principalId: deployerPrincipalId
     principalType: 'User'
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', kvAdminRoleId)
+  }
+}
+
+// Seed the CIAM provisioning secret at deploy time. This is a control-plane
+// write (ARM), so it succeeds even when the vault's public network access is
+// disabled by policy — unlike `az keyvault secret set` from a dev machine.
+// Skipped when no value is supplied (e.g. dev mode, or re-deploys after the
+// secret was cleared from the azd env).
+resource provisioningSecret 'Microsoft.KeyVault/vaults/secrets@2024-04-01-preview' = if (!empty(provisioningSecretValue)) {
+  parent: kv
+  name: provisioningSecretName
+  properties: {
+    value: provisioningSecretValue
   }
 }
 

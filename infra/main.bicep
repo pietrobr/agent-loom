@@ -66,6 +66,9 @@ param orgIdClaim string = 'org_id'
 param provisioningClientId string = ''
 @description('Key Vault secret name holding the CIAM provisioning app secret.')
 param provisioningSecretName string = 'ciam-provisioning-secret'
+@description('CIAM provisioning app secret value. When provided, it is written into Key Vault at deploy time (control-plane, works with public access disabled). Empty = leave Key Vault untouched.')
+@secure()
+param provisioningSecretValue string = ''
 
 @description('Admin SPA: MSAL client id / authority / API scope (workforce).')
 param adminClientId string = ''
@@ -154,6 +157,8 @@ module keyvault 'modules/keyvault.bicep' = {
     tags: commonTags
     backendPrincipalId: managedIdentity.properties.principalId
     deployerPrincipalId: principalId
+    provisioningSecretName: provisioningSecretName
+    provisioningSecretValue: provisioningSecretValue
   }
 }
 
