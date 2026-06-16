@@ -660,12 +660,17 @@ $env:BACKEND_URL=(azd env get-value BACKEND_URL)
 $env:VITE_ADMIN_CLIENT_ID=(azd env get-value VITE_ADMIN_CLIENT_ID)
 $env:VITE_ADMIN_AUTHORITY=(azd env get-value VITE_ADMIN_AUTHORITY)
 $env:VITE_ADMIN_API_SCOPE=(azd env get-value VITE_ADMIN_API_SCOPE)
+# Seeding scope (match what you set on the env in Step 1):
+$env:SEED_TEMPLATES='true'
+$env:SEED_DEMO_CUSTOMERS='false'   # 'true' to also seed the 2 demo customers
 python scripts/seed_via_api.py     # prints a device-code URL + code; sign in as the admin
 ```
 
 The script waits for you to complete the browser sign-in, acquires an admin
-token, and seeds templates + demo customers through the backend admin API (which
-reaches the private Cosmos from inside the VNet — no firewall changes).
+token, and seeds the catalog through the backend admin API (which reaches the
+private Cosmos from inside the VNet — no firewall changes). With
+`SEED_DEMO_CUSTOMERS=false` it seeds **only the templates** (no customers, no
+groups); set it to `true` to also create the two demo customers + instances.
 
 #### Step 6 — Sign in
 
@@ -685,8 +690,11 @@ reaches the private Cosmos from inside the VNet — no firewall changes).
 | Backend 401, log `issuer not recognised: https://sts.windows.net/…` | app emits **v1** tokens | `api.requestedAccessTokenVersion=2` on both apps |
 | Backend 401, log `issuer not recognised: https://<sub>.ciamlogin.com/…` | CIAM issuer uses the **tenant GUID** as subdomain | backend derives `https://<tid>.ciamlogin.com/<tid>/v2.0` |
 | Customer 401, `token is not mapped to any tenant group` | token's `groups` GUID doesn't match any tenant's `group_id` | ensure the customer was created **in the Console** (which stores `group_id`) and the user is a member of `cust-<org_id>`; `groupMembershipClaims=SecurityGroup` on the customer app |
-| New customer's group not auto-created | provisioning app/secret missing | set `PROVISIONING_CLIENT_ID` + store the secret in Key Vault (Step 3b) |
+| New customer's group not auto-created | provisioning app/secret missing | set `PROVISIONING_CLIENT_ID` + stage `PROVISIONING_SECRET` so `azd up` writes it to Key Vault (Step 3b) |
 | New customer's group not auto-created, **secret present** in Key Vault | the policy-hardened Key Vault has `publicNetworkAccess=Disabled` but **no private endpoint**, so the in-VNet backend can't read the secret (`get_secret` returns `None` silently) | a **Key Vault private endpoint + DNS zone** is provisioned in `infra` (alongside Cosmos/Storage) so the backend reaches the vault privately |
+| `azd up` fails: *failed to resolve user … access to subscription* | `setup_identity.ps1` signed the CLI into an **identity tenant**, and `azd` kept a separate session there | run `azd config set auth.useAzCliAuth "true"` once; the scripts also restore the CLI to your resource subscription when they finish |
+| Backend 401 `Invalid audience` on admin token | `WORKFORCE_AUDIENCE` empty (a line dropped while pasting the wiring) | run Step 1 with `-AzdEnv` so the script writes every value itself (no copy/paste) |
+| `azd up` name conflict / can't reuse an env name+prefix | a previous deploy's **Key Vault / Foundry is soft-deleted with purge protection** (names blocked ~7 days) | use a fresh `AZURE_ENV_NAME` + `AZURE_RESOURCE_PREFIX`, or wait for the scheduled purge date (`az keyvault list-deleted`) |
 
 Do **not** use B2B guest users in the provider tenant for customer identities.
 
