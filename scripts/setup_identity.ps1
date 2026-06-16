@@ -39,7 +39,8 @@ param(
   [string[]] $CustomerRedirectUris = @("http://localhost:5174"),
   [switch] $SeedTestUsers,
   [string] $TestUserPassword,                                       # required when -SeedTestUsers; otherwise a random one is generated
-  [string] $ProvisioningAppName = "AgentLoom Provisioning"          # CIAM app the backend uses to create per-customer groups
+  [string] $ProvisioningAppName = "AgentLoom Provisioning",         # CIAM app the backend uses to create per-customer groups
+  [string] $AzdEnv                                                  # if set, write the config straight into this azd env (no copy/paste)
 )
 
 $ErrorActionPreference = "Stop"
