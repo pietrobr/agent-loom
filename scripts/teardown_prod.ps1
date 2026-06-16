@@ -84,6 +84,12 @@ if ($AzdEnv -match 'dev|test') {
 # --------------------------------------------------------------------------- #
 $script:TenantIds  = @{}    # friendly name -> tenant GUID
 $script:TokenCache = @{}    # tenant GUID  -> @{ token = ...; exp = [datetime] }
+# Remember the caller's active az subscription so we can restore it before
+# `azd down`. The tenant sign-ins below switch the CLI context to an identity
+# tenant; without restoring it, `azd` (which follows the az CLI) would target an
+# identity tenant that can't access the resource subscription, and `azd down`
+# would fail to resolve the principal.
+$script:OriginalSub = (az account show --query id -o tsv 2>$null)
 
 function Connect-AllTenants {
   Write-Host "`n=== Sign-in (asked once) ===" -ForegroundColor Cyan
@@ -214,6 +220,9 @@ function Remove-AzureResources {
   $repoRoot = Split-Path -Parent $PSScriptRoot
   Push-Location $repoRoot
   try {
+    # Restore the caller's resource subscription (the identity-tenant sign-ins
+    # left the CLI — and therefore azd — pointed elsewhere).
+    if ($script:OriginalSub) { az account set --subscription $script:OriginalSub 2>$null | Out-Null }
     azd env select $AzdEnv 2>$null | Out-Null
     $envName = (azd env get-value AZURE_ENV_NAME 2>$null)
     if ([string]::IsNullOrWhiteSpace($envName)) { $envName = $AzdEnv }
