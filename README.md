@@ -498,6 +498,22 @@ everything via Microsoft Graph. You must be **Global Administrator of both
 tenants** (the same user works if it's GA of both). It signs in to each tenant
 in turn (browser prompt).
 
+> **Heads-up — you'll authenticate several times across the prod flow.**
+> The provider workforce tenant and the customer CIAM tenant are **separate
+> directories**, so the Azure CLI keeps a separate sign-in for each. Expect
+> **multiple browser sign-in prompts** during a full production setup:
+> - **Step 1 (`setup_identity.ps1`)** signs in to *each* tenant in turn — at
+>   least two prompts (workforce, then CIAM), and again if a cached token
+>   expires or your tenant enforces MFA on a fresh scope.
+> - **Step 5 (seeding)** triggers a separate **device-code** admin sign-in
+>   against the workforce tenant.
+> - **Teardown** (`teardown_prod.ps1`) signs in once per tenant again.
+>
+> This is expected — each tenant is its own login. Completing a prompt and
+> leaving the browser session active keeps later prompts quick (often just a
+> click). The scripts cache and reuse tokens where possible to minimise the
+> number of interactive sign-ins.
+
 ```powershell
 ./scripts/setup_identity.ps1 `
   -WorkforceTenant contoso-saas.onmicrosoft.com `
