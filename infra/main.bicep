@@ -261,6 +261,19 @@ module storagePe 'modules/privateEndpoint.bicep' = {
   }
 }
 
+module keyvaultPe 'modules/privateEndpoint.bicep' = {
+  name: 'keyvaultPe'
+  params: {
+    location: location
+    name: '${names.keyvault}-pe'
+    tags: commonTags
+    subnetId: network.outputs.peSubnetId
+    serviceId: keyvault.outputs.id
+    groupId: 'vault'
+    dnsZoneId: network.outputs.keyvaultDnsZoneId
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Container Apps Environment + three Container Apps
 // ---------------------------------------------------------------------------

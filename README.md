@@ -61,6 +61,7 @@ flowchart TB
         direction LR
         COS[("Cosmos DB<br/>pk = org_id")]
         BL[("Blob Storage<br/>knowledge — MI only")]
+        KV[("Key Vault<br/>CIAM provisioning secret")]
       end
 
       subgraph AIPlane["AI plane"]
@@ -73,8 +74,6 @@ flowchart TB
           EMB["embedding model<br/>text-embedding-3-small"]
         end
       end
-
-      KV[("Key Vault")]
     end
 
     CW -- "Bearer JWT<br/>dev: HS256 demo · prod: groups → org_id" --> WEB
@@ -624,6 +623,7 @@ reaches the private Cosmos from inside the VNet — no firewall changes).
 | Backend 401, log `issuer not recognised: https://<sub>.ciamlogin.com/…` | CIAM issuer uses the **tenant GUID** as subdomain | backend derives `https://<tid>.ciamlogin.com/<tid>/v2.0` |
 | Customer 401, `token is not mapped to any tenant group` | token's `groups` GUID doesn't match any tenant's `group_id` | ensure the customer was created **in the Console** (which stores `group_id`) and the user is a member of `cust-<org_id>`; `groupMembershipClaims=SecurityGroup` on the customer app |
 | New customer's group not auto-created | provisioning app/secret missing | set `PROVISIONING_CLIENT_ID` + store the secret in Key Vault (Step 3b) |
+| New customer's group not auto-created, **secret present** in Key Vault | the policy-hardened Key Vault has `publicNetworkAccess=Disabled` but **no private endpoint**, so the in-VNet backend can't read the secret (`get_secret` returns `None` silently) | a **Key Vault private endpoint + DNS zone** is provisioned in `infra` (alongside Cosmos/Storage) so the backend reaches the vault privately |
 
 Do **not** use B2B guest users in the provider tenant for customer identities.
 

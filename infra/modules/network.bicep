@@ -53,6 +53,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
 var zoneNames = [
   'privatelink.documents.azure.com'        // Cosmos DB (SQL API)
   'privatelink.blob.${environment().suffixes.storage}' // Storage (blob)
+  'privatelink.vaultcore.azure.net'        // Key Vault
 ]
 
 resource zones 'Microsoft.Network/privateDnsZones@2020-06-01' = [for z in zoneNames: {
@@ -76,3 +77,4 @@ output infraSubnetId string = '${vnet.id}/subnets/infra'
 output peSubnetId string = '${vnet.id}/subnets/pe'
 output cosmosDnsZoneId string = zones[0].id
 output blobDnsZoneId string = zones[1].id
+output keyvaultDnsZoneId string = zones[2].id
