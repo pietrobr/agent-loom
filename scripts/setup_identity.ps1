@@ -349,5 +349,5 @@ Write-Host "    az keyvault secret set --vault-name <kv-name> ``"
 Write-Host "      --name ciam-provisioning-secret --value `"$provSecret`""
 Write-Host "  (kv-name = azd env get-value KEYVAULT_URI → the host label, e.g. agentloomagentloom-prodk)"
 
-Write-Host "`nNOTE: after `azd up`, add the deployed SPA URLs as SPA redirect URIs" -ForegroundColor Yellow
-Write-Host "      on both app registrations (admin → ADMIN_URL, customer → CUSTOMER_URL)." -ForegroundColor Yellow
+Write-Host "`nNOTE: after `azd up`, register the deployed SPA URLs as redirect URIs" -ForegroundColor Yellow
+Write-Host "      by running:  ./scripts/add_redirect_uris.ps1 -WorkforceTenant $WorkforceTenant -CiamTenant $CiamTenant" -ForegroundColor Yellow

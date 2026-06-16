@@ -595,11 +595,25 @@ registration.
 
 #### Step 4 — Add the deployed redirect URIs
 
-After the first deploy, add the deployed SPA URLs as **SPA redirect URIs** on
-the two app registrations (the script only seeds `localhost` for local dev):
+The first deploy assigns the SPAs their public Container Apps URLs. MSAL sign-in
+only works if those exact origins are registered as **SPA redirect URIs** on the
+app registrations — `setup_identity.ps1` runs before the deployment exists, so it
+seeds only `localhost`. Run this **after `azd up`** to add the real URLs:
+
+```powershell
+./scripts/add_redirect_uris.ps1 `
+  -WorkforceTenant contoso-saas.onmicrosoft.com `
+  -CiamTenant      agentloomcustomers.onmicrosoft.com
+```
+
+It reads `ADMIN_URL` / `CUSTOMER_URL` and the app client ids straight from the
+azd environment (nothing to copy by hand), signs in to each tenant once, and
+appends the deployed origin to the matching app — idempotently:
 
 - admin app (workforce) → `ADMIN_URL`
 - customer app (CIAM) → `CUSTOMER_URL`
+
+> Pass `-AzdEnv <name>` to target a specific azd environment.
 
 #### Step 5 — Seed the catalog (separate, prod-pure step)
 
