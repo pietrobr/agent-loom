@@ -398,6 +398,7 @@ export function InstancesPage() {
               Assign template
             </Button>
             <Button
+              appearance="primary"
               icon={<DocumentArrowUp20Regular />}
               disabled={!orgId || !instances.length}
               onClick={() => setUploadOpen(true)}
