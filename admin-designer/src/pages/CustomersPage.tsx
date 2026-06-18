@@ -73,8 +73,9 @@ const EMPTY = {
   branding: { product_name: "", primary_color: "#138DDE", logo_url: "/logo.svg", tagline: "" },
 };
 
-// Default monthly token allowance per tier. Selecting a tier prefills this
-// (the admin can still override the number manually).
+// Default monthly token allowance per preset tier. Selecting one of these
+// tiers sets the quota automatically; only the "custom" tier lets the admin
+// type an arbitrary number.
 const TIER_QUOTAS: Record<string, number> = {
   free: 100_000,
   starter: 1_000_000,
@@ -334,12 +335,20 @@ export function CustomersPage() {
             <Option value="free">free</Option>
             <Option value="starter">starter</Option>
             <Option value="pro">pro</Option>
+            <Option value="custom">custom</Option>
           </Dropdown>
-          <Label>Monthly token quota</Label>
+          <Label>
+            Monthly token quota
+            {draft.tier !== "custom" && " (set by tier — choose “custom” to edit)"}
+          </Label>
           <Input
-            type="number"
-            value={String(draft.monthly_token_quota)}
-            onChange={(_, d) => setDraft({ ...draft, monthly_token_quota: Number(d.value) })}
+            inputMode="numeric"
+            disabled={draft.tier !== "custom"}
+            value={Number(draft.monthly_token_quota || 0).toLocaleString("en-US")}
+            onChange={(_, d) => {
+              const n = Number(d.value.replace(/[^\d]/g, ""));
+              setDraft({ ...draft, monthly_token_quota: Number.isFinite(n) ? n : 0 });
+            }}
           />
           <Label>Brand: product name</Label>
           <Input
@@ -396,13 +405,6 @@ export function CustomersPage() {
               Upload SVG…
             </Button>
           </div>
-          <Input
-            value={draft.branding.logo_url}
-            placeholder="/logo.svg, /bots/<org>.svg, https://…/logo.svg, or an uploaded data: URI"
-            onChange={(_, d) =>
-              setDraft({ ...draft, branding: { ...draft.branding, logo_url: d.value } })
-            }
-          />
           <div className={styles.row}>
             <Button
               appearance="primary"
