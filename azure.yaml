@@ -23,6 +23,22 @@ services:
       context: ../
       buildArgs:
         - APP_BUILD=${APP_BUILD}
+    # Service-level hook so the build number is stamped on EVERY build of this
+    # app — including a stand-alone `azd deploy admin-designer` (image-only),
+    # not just a full `azd up`. It writes the git commit count to
+    # admin-designer/build-number.txt, which IS in the Docker build context and
+    # is read by vite.config.ts. (A plain `azd env set APP_BUILD` is NOT enough:
+    # azd resolves Docker build-args from the OS env, not the azd .env file.)
+    # NB: service hooks run with the working dir set to this service's folder,
+    # so the path is relative to admin-designer/.
+    hooks:
+      prepackage:
+        windows:
+          shell: pwsh
+          run: git rev-list --count HEAD | Out-File -Encoding ascii -NoNewline build-number.txt
+        posix:
+          shell: sh
+          run: git rev-list --count HEAD | tr -d '\n' > build-number.txt
   customer-webapp:
     project: ./customer-webapp
     language: ts
@@ -31,13 +47,6 @@ services:
       path: Dockerfile
       context: ../
 hooks:
-  prepackage:
-    windows:
-      shell: pwsh
-      run: azd env set APP_BUILD (git rev-list --count HEAD)
-    posix:
-      shell: sh
-      run: azd env set APP_BUILD $(git rev-list --count HEAD)
   postdeploy:
     windows:
       shell: pwsh
