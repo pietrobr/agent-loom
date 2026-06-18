@@ -5,6 +5,9 @@ WORKDIR /app
 COPY admin-designer/package.json ./package.json
 RUN npm install
 COPY admin-designer/ ./
+# Build number injected from the host (git commit count); see azure.yaml buildArgs.
+ARG APP_BUILD=0
+ENV APP_BUILD=$APP_BUILD
 RUN npm run build
 
 FROM nginx:1.29-alpine

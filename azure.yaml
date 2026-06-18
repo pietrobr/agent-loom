@@ -21,6 +21,8 @@ services:
     docker:
       path: Dockerfile
       context: ../
+      buildArgs:
+        - APP_BUILD=${APP_BUILD}
   customer-webapp:
     project: ./customer-webapp
     language: ts
@@ -29,6 +31,13 @@ services:
       path: Dockerfile
       context: ../
 hooks:
+  predeploy:
+    windows:
+      shell: pwsh
+      run: azd env set APP_BUILD (git rev-list --count HEAD)
+    posix:
+      shell: sh
+      run: azd env set APP_BUILD $(git rev-list --count HEAD)
   postdeploy:
     windows:
       shell: pwsh

@@ -48,7 +48,7 @@ flowchart TB
     subgraph Azure["Provider Azure subscription — single deployment"]
       direction TB
 
-      subgraph ACA["Container Apps Environment · VNet-integrated"]
+      subgraph ACA["Container Apps Environment · VNet-integrated · NSG on subnets"]
         direction LR
         WEB["nginx static hosting<br/>(both SPAs)"]
         API["FastAPI front door<br/>tenant middleware · org_id isolation · SSE"]
@@ -115,7 +115,9 @@ disabled** (tenant-policy compliant). The Container Apps environment is
 **integrated into a VNet** and reaches them over **private endpoints** with
 private DNS zones — no traffic over the public internet. Azure AI Search,
 Foundry and Key Vault are reached via managed identity over their service
-endpoints.
+endpoints. Both VNet subnets (`infra` + `pe`) are attached to a **Network
+Security Group**, so the deploy stays compliant in tenants that enforce the
+*“Subnets must have a Network Security Group”* Azure Policy.
 
 ### Production identity: Microsoft Entra External ID (multi-customer)
 
@@ -263,7 +265,7 @@ AgentLoom/
 ├─ azure.yaml                 # azd project (3 services + post-provision hook)
 ├─ infra/                     # Modular Bicep
 │  ├─ main.bicep              # root: network, identity, KV, Cosmos, Search, Storage, ACR, Foundry, ACA
-│  └─ modules/*.bicep         # incl. network.bicep (VNet + DNS) + privateEndpoint.bicep
+│  └─ modules/*.bicep         # incl. network.bicep (VNet + NSG + DNS) + privateEndpoint.bicep
 ├─ backend/                   # FastAPI front door
 │  └─ app/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py
@@ -698,6 +700,7 @@ groups); set it to `true` to also create the two demo customers + instances.
 | `azd up` fails: *failed to resolve user … access to subscription* | `setup_identity.ps1` signed the CLI into an **identity tenant**, and `azd` kept a separate session there | run `azd config set auth.useAzCliAuth "true"` once; the scripts also restore the CLI to your resource subscription when they finish |
 | Backend 401 `Invalid audience` on admin token | `WORKFORCE_AUDIENCE` empty (a line dropped while pasting the wiring) | run Step 1 with `-AzdEnv` so the script writes every value itself (no copy/paste) |
 | `azd up` name conflict / can't reuse an env name+prefix | a previous deploy's **Key Vault / Foundry is soft-deleted with purge protection** (names blocked ~7 days) | use a fresh `AZURE_ENV_NAME` + `AZURE_RESOURCE_PREFIX`, or wait for the scheduled purge date (`az keyvault list-deleted`) |
+| `azd up` fails: `RequestDisallowedByPolicy … Subnets must have a Network Security Group` | the target tenant enforces an Azure Policy that **denies** subnets without an NSG (varies per subscription/management group, not part of the template) | `network.bicep` provisions an **NSG and attaches it to both subnets** (`infra` + `pe`); rebuild `infra/main.json` (`az bicep build`) and re-run `azd up` |
 
 Do **not** use B2B guest users in the provider tenant for customer identities.
 

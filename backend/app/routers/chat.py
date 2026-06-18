@@ -10,15 +10,18 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sse_starlette.sse import EventSourceResponse
-
 from ..models import ChatRequest
 from ..security import Principal, get_principal
 from ..services import agentic, cosmos, foundry, search
 
 router = APIRouter(prefix="/v1", tags=["chat"])
 log = logging.getLogger(__name__)
+
+# Max characters of extracted document text returned to the chat composer.
+# Keeps a single attachment from blowing past the model context window.
+_MAX_EXTRACT_CHARS = 20_000
 
 
 def _thread_id_for(org_id: str, conversation_id: str) -> str:
@@ -34,6 +37,83 @@ def _thread_id_for(org_id: str, conversation_id: str) -> str:
         {"id": key, "org_id": org_id, "conversation_id": conversation_id, "thread_id": thread_id},
     )
     return thread_id
+
+
+def _extract_text(filename: str, content_type: str, raw: bytes) -> str:
+    """Best-effort plain-text extraction from an uploaded document.
+
+    Supports PDF (pypdf), Word .docx (python-docx) and any UTF-8 text/markdown
+    file. Returns the extracted text; raises HTTP 415 for unsupported formats.
+    """
+    name = (filename or "").lower()
+    ctype = (content_type or "").lower()
+
+    # PDF
+    if name.endswith(".pdf") or "pdf" in ctype:
+        try:
+            import io
+
+            from pypdf import PdfReader  # type: ignore
+
+            reader = PdfReader(io.BytesIO(raw))
+            parts = [(page.extract_text() or "") for page in reader.pages]
+            return "\n".join(parts).strip()
+        except Exception as exc:  # pragma: no cover - depends on file content
+            raise HTTPException(422, f"could not read PDF: {exc}")
+
+    # Word .docx
+    if name.endswith(".docx") or "officedocument.wordprocessingml" in ctype:
+        try:
+            import io
+
+            from docx import Document  # type: ignore
+
+            doc = Document(io.BytesIO(raw))
+            return "\n".join(par.text for par in doc.paragraphs).strip()
+        except Exception as exc:  # pragma: no cover - depends on file content
+            raise HTTPException(422, f"could not read Word document: {exc}")
+
+    # Plain text / markdown / csv (legacy .doc is not supported)
+    if name.endswith(".doc"):
+        raise HTTPException(415, "legacy .doc is not supported — upload PDF, DOCX, TXT or MD")
+    if name.endswith((".txt", ".md", ".csv")) or ctype.startswith("text/") or not ctype:
+        return raw.decode("utf-8", errors="ignore").strip()
+
+    raise HTTPException(415, f"unsupported file type: {filename}")
+
+
+@router.post("/chat/extract")
+async def extract_document(
+    file: UploadFile = File(...),
+    p: Principal = Depends(get_principal),
+) -> dict:
+    """Extract plain text from an uploaded document for the chat composer.
+
+    Lets a customer attach a file (e.g. a CV) in the chat: the client uploads
+    it here, receives the extracted text, and includes it in the next message.
+    Authenticated and org-scoped via the JWT; nothing is persisted.
+    """
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "empty file")
+    if len(raw) > 8 * 1024 * 1024:
+        raise HTTPException(413, "file too large (max 8 MB)")
+
+    text = await anyio.to_thread.run_sync(
+        _extract_text, file.filename or "", file.content_type or "", raw
+    )
+    if not text:
+        raise HTTPException(422, "no readable text found in the document")
+
+    truncated = len(text) > _MAX_EXTRACT_CHARS
+    if truncated:
+        text = text[:_MAX_EXTRACT_CHARS]
+    return {
+        "filename": file.filename,
+        "chars": len(text),
+        "truncated": truncated,
+        "text": text,
+    }
 
 
 @router.post("/chat")

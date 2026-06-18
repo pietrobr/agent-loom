@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.28.1.47646",
-      "templateHash": "1975851084327289813"
+      "templateHash": "11470568396385617772"
     }
   },
   "parameters": {
@@ -150,6 +150,13 @@
       "defaultValue": "ciam-provisioning-secret",
       "metadata": {
         "description": "Key Vault secret name holding the CIAM provisioning app secret."
+      }
+    },
+    "provisioningSecretValue": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "CIAM provisioning app secret value. When provided, it is written into Key Vault at deploy time (control-plane, works with public access disabled). Empty = leave Key Vault untouched."
       }
     },
     "adminClientId": {
@@ -348,7 +355,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "4809972656582471599"
+              "templateHash": "7413829296994126631"
             }
           },
           "parameters": {
@@ -386,10 +393,19 @@
           "variables": {
             "zoneNames": [
               "privatelink.documents.azure.com",
-              "[format('privatelink.blob.{0}', environment().suffixes.storage)]"
+              "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+              "privatelink.vaultcore.azure.net"
             ]
           },
           "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}-nsg', parameters('name'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {}
+            },
             {
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2023-11-01",
@@ -407,6 +423,9 @@
                     "name": "infra",
                     "properties": {
                       "addressPrefix": "[parameters('infraSubnetCidr')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+                      },
                       "delegations": [
                         {
                           "name": "aca",
@@ -421,11 +440,17 @@
                     "name": "pe",
                     "properties": {
                       "addressPrefix": "[parameters('peSubnetCidr')]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+                      },
                       "privateEndpointNetworkPolicies": "Disabled"
                     }
                   }
                 ]
-              }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('{0}-nsg', parameters('name')))]"
+              ]
             },
             {
               "copy": {
@@ -479,6 +504,10 @@
             "blobDnsZoneId": {
               "type": "string",
               "value": "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[1])]"
+            },
+            "keyvaultDnsZoneId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[2])]"
             }
           }
         }
@@ -508,6 +537,12 @@
           },
           "deployerPrincipalId": {
             "value": "[parameters('principalId')]"
+          },
+          "provisioningSecretName": {
+            "value": "[parameters('provisioningSecretName')]"
+          },
+          "provisioningSecretValue": {
+            "value": "[parameters('provisioningSecretValue')]"
           }
         },
         "template": {
@@ -517,7 +552,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "17020965695330574449"
+              "templateHash": "13263216470431981817"
             }
           },
           "parameters": {
@@ -535,6 +570,20 @@
             },
             "deployerPrincipalId": {
               "type": "string"
+            },
+            "provisioningSecretName": {
+              "type": "string",
+              "defaultValue": "ciam-provisioning-secret",
+              "metadata": {
+                "description": "Optional: name of the CIAM provisioning secret to seed at deploy time."
+              }
+            },
+            "provisioningSecretValue": {
+              "type": "securestring",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Optional: value of the CIAM provisioning secret. Empty = do not create/update it (the control-plane write works even when public network access is disabled)."
+              }
             }
           },
           "variables": {
@@ -589,6 +638,18 @@
                 "principalId": "[parameters('deployerPrincipalId')]",
                 "principalType": "User",
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('kvAdminRoleId'))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.KeyVault/vaults', parameters('name'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('provisioningSecretValue')))]",
+              "type": "Microsoft.KeyVault/vaults/secrets",
+              "apiVersion": "2024-04-01-preview",
+              "name": "[format('{0}/{1}', parameters('name'), parameters('provisioningSecretName'))]",
+              "properties": {
+                "value": "[parameters('provisioningSecretValue')]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.KeyVault/vaults', parameters('name'))]"
@@ -1758,6 +1819,139 @@
       "dependsOn": [
         "[resourceId('Microsoft.Resources/deployments', 'network')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage')]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "keyvaultPe",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "name": {
+            "value": "[format('{0}-pe', variables('names').keyvault)]"
+          },
+          "tags": {
+            "value": "[variables('commonTags')]"
+          },
+          "subnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2022-09-01').outputs.peSubnetId.value]"
+          },
+          "serviceId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'keyvault'), '2022-09-01').outputs.id.value]"
+          },
+          "groupId": {
+            "value": "vault"
+          },
+          "dnsZoneId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'network'), '2022-09-01').outputs.keyvaultDnsZoneId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.28.1.47646",
+              "templateHash": "9578028254001336399"
+            }
+          },
+          "parameters": {
+            "location": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            },
+            "subnetId": {
+              "type": "string",
+              "metadata": {
+                "description": "Subnet that hosts the private endpoint NIC."
+              }
+            },
+            "serviceId": {
+              "type": "string",
+              "metadata": {
+                "description": "Resource id of the PaaS service to connect to."
+              }
+            },
+            "groupId": {
+              "type": "string",
+              "metadata": {
+                "description": "Private link group id, e.g. \"Sql\" (Cosmos) or \"blob\" (Storage)."
+              }
+            },
+            "dnsZoneId": {
+              "type": "string",
+              "metadata": {
+                "description": "Private DNS zone id to register the endpoint A record into."
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Network/privateEndpoints",
+              "apiVersion": "2023-11-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "subnet": {
+                  "id": "[parameters('subnetId')]"
+                },
+                "privateLinkServiceConnections": [
+                  {
+                    "name": "[parameters('name')]",
+                    "properties": {
+                      "privateLinkServiceId": "[parameters('serviceId')]",
+                      "groupIds": [
+                        "[parameters('groupId')]"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+              "apiVersion": "2023-11-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'default')]",
+              "properties": {
+                "privateDnsZoneConfigs": [
+                  {
+                    "name": "config",
+                    "properties": {
+                      "privateDnsZoneId": "[parameters('dnsZoneId')]"
+                    }
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "id": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Network/privateEndpoints', parameters('name'))]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
+        "[resourceId('Microsoft.Resources/deployments', 'network')]"
       ]
     },
     {

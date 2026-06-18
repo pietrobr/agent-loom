@@ -129,6 +129,30 @@ export interface ChatEvents {
   onError?: (msg: string, status?: number, code?: string) => void;
 }
 
+export interface ExtractedFile {
+  filename: string;
+  chars: number;
+  truncated: boolean;
+  text: string;
+}
+
+/**
+ * Upload a document (PDF / DOCX / TXT / MD) and get its extracted plain text
+ * back, so it can be attached into a chat message (e.g. a CV to evaluate).
+ * Nothing is persisted server-side.
+ */
+export async function extractFile(file: File): Promise<ExtractedFile> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/v1/chat/extract`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  });
+  if (!res.ok) throw await readError(res, "file upload");
+  return res.json();
+}
+
 /**
  * Streams a chat completion via SSE. Uses fetch + ReadableStream because the
  * native EventSource API cannot send POST bodies or Authorization headers.

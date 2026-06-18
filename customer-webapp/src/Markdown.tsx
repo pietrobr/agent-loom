@@ -52,7 +52,6 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
   let list: { ordered: boolean; items: string[] } | null = null;
   let para: string[] = [];
   let key = 0;
-
   const flushPara = () => {
     if (para.length) {
       blocks.push(
@@ -78,14 +77,83 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
     }
   };
 
-  for (const raw of lines) {
+  // Split a GFM table row "| a | b |" into trimmed cells, ignoring the
+  // optional leading/trailing pipes.
+  const splitRow = (row: string): string[] => {
+    let s = row.trim();
+    if (s.startsWith("|")) s = s.slice(1);
+    if (s.endsWith("|")) s = s.slice(0, -1);
+    return s.split("|").map((c) => c.trim());
+  };
+  const isTableSeparator = (row: string): boolean =>
+    /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/.test(row);
+
+  for (let idx = 0; idx < lines.length; idx++) {
+    const raw = lines[idx];
     const line = raw.trimEnd();
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
     const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
     const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
 
-    if (heading) {
+    // GFM table: a header row, a separator row, then zero or more body rows.
+    const next = idx + 1 < lines.length ? lines[idx + 1] : "";
+    if (line.includes("|") && isTableSeparator(next) && !heading && !bullet && !numbered) {
       flushPara();
+      flushList();
+      const headers = splitRow(line);
+      const rows: string[][] = [];
+      idx += 2; // skip header + separator
+      while (idx < lines.length && lines[idx].includes("|") && lines[idx].trim() !== "") {
+        rows.push(splitRow(lines[idx]));
+        idx++;
+      }
+      idx--; // the for-loop will increment past the last consumed row
+      const tkey = key++;
+      blocks.push(
+        <div key={`tw-${tkey}`} style={{ overflowX: "auto", margin: "0 0 8px" }}>
+          <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
+            <thead>
+              <tr>
+                {headers.map((h, ci) => (
+                  <th
+                    key={ci}
+                    style={{
+                      textAlign: "left",
+                      padding: "6px 10px",
+                      borderBottom: "2px solid rgba(0,0,0,0.18)",
+                      background: "rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    {renderInline(h, `th${tkey}-${ci}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {headers.map((_, ci) => (
+                    <td
+                      key={ci}
+                      style={{
+                        padding: "6px 10px",
+                        borderBottom: "1px solid rgba(0,0,0,0.10)",
+                        verticalAlign: "top",
+                      }}
+                    >
+                      {renderInline(r[ci] ?? "", `td${tkey}-${ri}-${ci}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    if (heading) {      flushPara();
       flushList();
       const level = Math.min(heading[1].length, 6);
       const size = [0, 18, 17, 16, 15, 14, 13][level];

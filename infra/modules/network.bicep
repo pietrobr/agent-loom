@@ -19,6 +19,18 @@ param infraSubnetCidr string = '10.20.0.0/23'
 @description('Subnet that holds the private endpoints.')
 param peSubnetCidr string = '10.20.2.0/24'
 
+// Network Security Group attached to every subnet. Some tenants enforce an
+// Azure Policy ("Subnets must have a Network Security Group") that blocks the
+// VNet deployment otherwise. The default NSG rules already allow the intra-VNet
+// and outbound traffic that the Container Apps environment and private
+// endpoints need, so no custom rules are required here.
+resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
+  name: '${name}-nsg'
+  location: location
+  tags: tags
+  properties: {}
+}
+
 resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
   name: name
   location: location
@@ -30,6 +42,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         name: 'infra'
         properties: {
           addressPrefix: infraSubnetCidr
+          networkSecurityGroup: { id: nsg.id }
           delegations: [
             {
               name: 'aca'
@@ -42,6 +55,7 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-11-01' = {
         name: 'pe'
         properties: {
           addressPrefix: peSubnetCidr
+          networkSecurityGroup: { id: nsg.id }
           privateEndpointNetworkPolicies: 'Disabled'
         }
       }

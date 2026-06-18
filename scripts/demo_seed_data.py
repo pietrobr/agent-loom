@@ -68,6 +68,32 @@ CUSTOMERS = [
             "What is included in a support contract?",
         ],
     },
+    {
+        "org_id": "meridian-hr",
+        "name": "Meridian Industries — HR Office",
+        "tier": "pro",
+        "monthly_token_quota": 5_000_000,
+        "branding": {
+            "product_name": "Meridian Talent Screener",
+            "primary_color": "#1F6FEB",
+            "logo_url": "/logo.svg",
+            "tagline": "Fair, fast candidate screening.",
+        },
+        "template_id": "cv-evaluation-assistant",
+        "instance_display": "Meridian CV Screener",
+        "instructions_addendum": (
+            "You support the HR office of Meridian Industries, a mid-size "
+            "engineering company. Screen candidate CVs strictly against the "
+            "current evaluation rules in the knowledge base, which HR updates "
+            "from time to time. When a mandatory requirement is unmet, the "
+            "recommendation must be Reject regardless of the overall score."
+        ),
+        "suggested_questions": [
+            "What are our current CV evaluation criteria?",
+            "Evaluate the CV of Marco Bianchi for the Backend Engineer role.",
+            "Evaluate the CV of Sara Conti for the Backend Engineer role.",
+        ],
+    },
 ]
 
 

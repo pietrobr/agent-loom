@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Button,
-  Textarea,
   Text,
-  Dropdown,
-  Option,
+  Dropdown,  Option,
   Spinner,
   Badge,
   makeStyles,
@@ -12,7 +10,7 @@ import {
   Avatar,
   MessageBar,
 } from "@fluentui/react-components";
-import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
 import {
@@ -25,6 +23,7 @@ import {
   getToken,
   setToken,
   streamChat,
+  extractFile,
   ApiError,
 } from "./api";
 import { authEnabled, signOut, signIn } from "./auth";
@@ -103,7 +102,56 @@ const useStyles = makeStyles({
     boxShadow: tokens.shadow2,
     overflowWrap: "anywhere",
   },
-  composer: { display: "flex", gap: "8px", padding: "12px 20px", alignItems: "flex-end" },
+  composer: {
+    display: "flex",
+    justifyContent: "center",
+    padding: "12px 20px 18px",
+  },
+  composerBar: {
+    width: "100%",
+    maxWidth: "820px",
+    display: "flex",
+    alignItems: "flex-end",
+    gap: "6px",
+    padding: "7px 8px 7px 10px",
+    borderRadius: "26px",
+    backgroundColor: tokens.colorNeutralBackground1,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    boxShadow: tokens.shadow4,
+    transition: "border-color 120ms ease, box-shadow 120ms ease",
+  },
+  ta: {
+    flexGrow: 1,
+    alignSelf: "center",
+    border: "none",
+    outline: "none",
+    resize: "none",
+    backgroundColor: "transparent",
+    color: tokens.colorNeutralForeground1,
+    fontFamily: "inherit",
+    fontSize: "15px",
+    lineHeight: "22px",
+    padding: "8px 4px",
+    maxHeight: "200px",
+    overflowY: "auto",
+    "::placeholder": { color: tokens.colorNeutralForeground4 },
+  },
+  iconBtn: {
+    minWidth: "36px",
+    width: "36px",
+    height: "36px",
+    padding: 0,
+    borderRadius: "999px",
+    flexShrink: 0,
+  },
+  sendBtn: {
+    minWidth: "36px",
+    width: "36px",
+    height: "36px",
+    padding: 0,
+    borderRadius: "999px",
+    flexShrink: 0,
+  },
   row: { display: "flex", gap: "8px", alignItems: "center" },
   starter: {
     display: "flex",
@@ -151,7 +199,19 @@ export function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [signedOut, setSignedOut] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-grow the composer textarea up to a max height, then scroll.
+  function autoResize() {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }
+  useEffect(autoResize, [input]);
 
   // Keep the browser tab title in sync with the selected customer's brand.
   useEffect(() => {
@@ -282,6 +342,25 @@ export function App() {
       await signOut();
     } finally {
       setSignedOut(true);
+    }
+  }
+
+  // Read an attached document (e.g. a CV), extract its text server-side, and
+  // drop it into the composer prefixed with a short instruction so the user can
+  // review and hit Send.
+  async function onAttach(file: File) {
+    setErr("");
+    setUploading(true);
+    try {
+      const res = await extractFile(file);
+      const header = `Please evaluate the attached document "${res.filename}".`;
+      const note = res.truncated ? "\n\n(Note: the document was long and has been truncated.)" : "";
+      const block = `${header}\n\n--- BEGIN DOCUMENT ---\n${res.text}\n--- END DOCUMENT ---${note}`;
+      setInput((cur) => (cur.trim() ? `${cur.trim()}\n\n${block}` : block));
+    } catch (e: any) {
+      setErr(e.message || "Could not read that file.");
+    } finally {
+      setUploading(false);
     }
   }
 
@@ -505,28 +584,52 @@ export function App() {
       )}
 
       <div className={styles.composer}>
-        <Textarea
-          style={{ flexGrow: 1 }}
-          resize="vertical"
-          value={input}
-          placeholder="Type your message…"
-          onChange={(_, d) => setInput(d.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.docx,.txt,.md,.csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onAttach(f);
+            e.target.value = ""; // allow re-selecting the same file
           }}
         />
-        <Button
-          appearance="primary"
-          icon={<Send24Filled />}
-          disabled={busy || !input.trim()}
-          onClick={() => send()}
-          style={{ backgroundColor: color }}
-        >
-          Send
-        </Button>
+        <div className={styles.composerBar}>
+          <Button
+            appearance="subtle"
+            className={styles.iconBtn}
+            icon={uploading ? <Spinner size="tiny" /> : <Attach24Regular />}
+            disabled={busy || uploading || !instanceId}
+            title="Attach a document (PDF, DOCX, TXT, MD) — e.g. a CV to evaluate"
+            aria-label="Attach a document"
+            onClick={() => fileRef.current?.click()}
+          />
+          <textarea
+            ref={taRef}
+            className={styles.ta}
+            rows={1}
+            value={input}
+            placeholder="Type your message…"
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+          />
+          <Button
+            appearance="primary"
+            className={styles.sendBtn}
+            icon={<Send24Filled />}
+            disabled={busy || !input.trim()}
+            onClick={() => send()}
+            title="Send"
+            aria-label="Send"
+            style={{ backgroundColor: color }}
+          />
+        </div>
       </div>
     </div>
   );

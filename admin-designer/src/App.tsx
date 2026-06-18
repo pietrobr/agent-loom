@@ -125,6 +125,9 @@ export function App() {
         <Text weight="bold" size={500}>
           {branding.PRODUCT_NAME} · SaaS Admin Console
         </Text>
+        <Badge appearance="tint" color="informative" title="App version (major.minor.build)">
+          v{__APP_VERSION__}
+        </Badge>
         <div className={styles.spacer} />
         <div className={styles.tokenRow}>
           {prod ? (

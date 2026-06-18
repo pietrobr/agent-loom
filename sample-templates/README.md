@@ -15,6 +15,7 @@ an instance is configured.
 |---|---|---|
 | `customer-care-assistant.json` | Customer Care Assistant | General, courteous support agent |
 | `knowledge-faq-assistant.json` | Knowledge / FAQ Assistant | Answers strictly grounded on the customer's knowledge base |
+| `cv-evaluation-assistant.json` | CV Evaluation Assistant | Screens candidate CVs against the HR office's evaluation rules |
 
 ## Fields
 

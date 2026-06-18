@@ -87,6 +87,7 @@ export function CustomersPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [draft, setDraft] = useState<any>(EMPTY);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
   const [toDelete, setToDelete] = useState<Tenant | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -130,7 +131,9 @@ export function CustomersPage() {
   }, []);
 
   async function save() {
+    if (saving) return;
     setErr("");
+    setSaving(true);
     try {
       await api.saveCustomer(draft);
       setDraft(EMPTY);
@@ -138,6 +141,8 @@ export function CustomersPage() {
       await load();
     } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -332,10 +337,15 @@ export function CustomersPage() {
             }
           />
           <div className={styles.row}>
-            <Button appearance="primary" onClick={save} disabled={!draft.org_id || !draft.name}>
-              Save
+            <Button
+              appearance="primary"
+              onClick={save}
+              disabled={saving || !draft.org_id || !draft.name}
+              icon={saving ? <Spinner size="tiny" /> : undefined}
+            >
+              {saving ? "Saving…" : "Save"}
             </Button>
-            <Button appearance="secondary" onClick={() => setOpen(false)}>
+            <Button appearance="secondary" onClick={() => setOpen(false)} disabled={saving}>
               Cancel
             </Button>
           </div>
