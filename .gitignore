@@ -11,6 +11,10 @@ dist/
 .vite/
 *.log
 
+# Generated at build from sample-customers/<org>/logo.svg (collect-logos.mjs)
+customer-webapp/public/bots/
+admin-designer/public/bots/
+
 # Compiled TS artifacts emitted next to sources (tsc -b)
 */src/**/*.js
 */src/**/*.d.ts

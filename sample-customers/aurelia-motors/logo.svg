@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-label="Aurelia Motors concierge">
+  <defs>
+    <linearGradient id="amBg" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B1F3B"/>
+      <stop offset="1" stop-color="#0C0E20"/>
+    </linearGradient>
+  </defs>
+  <rect x="3" y="3" width="58" height="58" rx="15" fill="url(#amBg)"/>
+  <!-- steering wheel, slowly rotating -->
+  <g stroke="#C9A24B" stroke-width="2.6" fill="none" stroke-linecap="round">
+    <g>
+      <circle cx="32" cy="32" r="14"/>
+      <circle cx="32" cy="32" r="3.4" fill="#C9A24B" stroke="none"/>
+      <path d="M32 32V18"/>
+      <path d="M32 32L20 39"/>
+      <path d="M32 32L44 39"/>
+      <animateTransform attributeName="transform" type="rotate" from="0 32 32" to="20 32 32"
+        dur="2.4s" values="-14 32 32; 14 32 32; -14 32 32" keyTimes="0;0.5;1" repeatCount="indefinite"/>
+    </g>
+  </g>
+  <!-- speed glints -->
+  <g stroke="#F0D38A" stroke-width="2" stroke-linecap="round">
+    <path d="M12 22h6"><animate attributeName="opacity" values="0.2;1;0.2" dur="1.6s" begin="0s" repeatCount="indefinite"/></path>
+    <path d="M12 30h4"><animate attributeName="opacity" values="0.2;1;0.2" dur="1.6s" begin="0.3s" repeatCount="indefinite"/></path>
+  </g>
+</svg>

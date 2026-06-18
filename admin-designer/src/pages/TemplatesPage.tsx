@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -20,7 +20,7 @@ import {
   DrawerHeaderTitle,
   DrawerBody,
 } from "@fluentui/react-components";
-import { Add20Filled, Dismiss24Regular, Edit20Regular, Delete20Regular } from "@fluentui/react-icons";
+import { Add20Filled, Dismiss24Regular, Edit20Regular, Delete20Regular, ArrowUpload20Regular } from "@fluentui/react-icons";
 import { api, Template } from "../api";
 
 const useStyles = makeStyles({
@@ -60,6 +60,7 @@ export function TemplatesPage() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string>("");
   const [open, setOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   function openNew() {
     setDraft(EMPTY);
@@ -68,6 +69,45 @@ export function TemplatesPage() {
   function openEdit(t: Template) {
     setDraft(t);
     setOpen(true);
+  }
+
+  // Allowed Template fields to copy from an imported JSON file. Anything else
+  // (e.g. foundry_agent_id) is ignored so the import can't inject stray data.
+  const TEMPLATE_KEYS: (keyof Template)[] = [
+    "id",
+    "name",
+    "description",
+    "category",
+    "model",
+    "allowed_models",
+    "instructions",
+    "parameters",
+    "agentic_retrieval",
+    "status",
+  ];
+
+  // Import a template from a JSON file (same shape as sample-templates/*.json).
+  // Parses, validates the minimal shape, prefills the drawer for review, then
+  // the admin hits Save.
+  async function importJson(file: File) {
+    setErr("");
+    try {
+      const obj = JSON.parse(await file.text());
+      if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
+        throw new Error("file is not a JSON object");
+      }
+      if (!obj.name || typeof obj.name !== "string") {
+        throw new Error('missing required "name" field');
+      }
+      const next: Partial<Template> = { ...EMPTY };
+      for (const k of TEMPLATE_KEYS) {
+        if (obj[k] !== undefined) (next as any)[k] = obj[k];
+      }
+      setDraft(next);
+      setOpen(true);
+    } catch (e: any) {
+      setErr(`Could not import template: ${e.message}`);
+    }
   }
 
   async function load() {
@@ -109,9 +149,30 @@ export function TemplatesPage() {
           <Text weight="semibold" size={500}>
             Catalog templates
           </Text>
-          <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
-            New template
-          </Button>
+          <div className={styles.row}>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) importJson(f);
+                e.target.value = ""; // allow re-selecting the same file
+              }}
+            />
+            <Button
+              appearance="secondary"
+              icon={<ArrowUpload20Regular />}
+              onClick={() => fileRef.current?.click()}
+              title="Import a template from a JSON file (sample-templates format)"
+            >
+              Import JSON
+            </Button>
+            <Button appearance="primary" icon={<Add20Filled />} onClick={openNew}>
+              New template
+            </Button>
+          </div>
         </div>
         {loading && <Spinner label="Loading…" />}
         {err && <MessageBar intent="error">{err}</MessageBar>}
@@ -179,6 +240,21 @@ export function TemplatesPage() {
         </DrawerHeader>
         <DrawerBody>
           <div className={styles.form}>
+          {!draft.id && (
+            <MessageBar intent="info">
+              <span>
+                Start from a JSON file?{" "}
+                <Button
+                  size="small"
+                  appearance="transparent"
+                  icon={<ArrowUpload20Regular />}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  Import JSON
+                </Button>
+              </span>
+            </MessageBar>
+          )}
           <Label>Name</Label>
           <Input value={draft.name || ""} onChange={(_, d) => setDraft({ ...draft, name: d.value })} />
           <Label>Description</Label>

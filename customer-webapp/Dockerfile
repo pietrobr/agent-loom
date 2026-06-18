@@ -5,6 +5,10 @@ WORKDIR /app
 COPY customer-webapp/package.json ./package.json
 RUN npm install
 COPY customer-webapp/ ./
+# Per-customer bot logos live next to each customer's content (single source of
+# truth). Copy them into the build context so the `prebuild` step can collect
+# them into public/bots/. `/app/../sample-customers` == `/sample-customers`.
+COPY sample-customers/ /sample-customers/
 RUN npm run build
 
 FROM nginx:1.29-alpine

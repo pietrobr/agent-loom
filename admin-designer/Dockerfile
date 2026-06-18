@@ -5,6 +5,10 @@ WORKDIR /app
 COPY admin-designer/package.json ./package.json
 RUN npm install
 COPY admin-designer/ ./
+# Per-customer bot logos (single source of truth in sample-customers/<org>/logo.svg)
+# are collected into public/bots/ by the prebuild step so the admin list can
+# render them. /app/../sample-customers == /sample-customers.
+COPY sample-customers/ /sample-customers/
 # Build number injected from the host (git commit count); see azure.yaml buildArgs.
 ARG APP_BUILD=0
 ENV APP_BUILD=$APP_BUILD

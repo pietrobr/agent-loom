@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -45,6 +45,15 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
   },
   colorRow: { display: "flex", gap: "10px", alignItems: "center" },
+  avatar: {
+    width: "40px",
+    height: "40px",
+    borderRadius: "10px",
+    objectFit: "cover",
+    backgroundColor: tokens.colorNeutralBackground3,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    flexShrink: 0,
+  },
   swatch: {
     width: "40px",
     height: "32px",
@@ -92,6 +101,28 @@ export function CustomersPage() {
   const [toDelete, setToDelete] = useState<Tenant | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [open, setOpen] = useState(false);
+  const logoFileRef = useRef<HTMLInputElement>(null);
+
+  // Read an uploaded SVG bot logo, validate it, and store it inline as a data
+  // URI in branding.logo_url. A data URI works as both an <img src> (chat
+  // avatar + header) and a favicon, so a new customer's logo needs no separate
+  // hosting — it travels with the tenant record.
+  async function onPickLogo(file: File) {
+    setErr("");
+    try {
+      if (file.size > 100 * 1024) throw new Error("SVG too large (max 100 KB)");
+      const text = (await file.text()).trim();
+      if (!/^<\?xml|^<svg/i.test(text) || !/<svg[\s>]/i.test(text)) {
+        throw new Error("not a valid SVG file");
+      }
+      if (/<script/i.test(text)) throw new Error("SVG must not contain <script>");
+      const b64 = btoa(unescape(encodeURIComponent(text)));
+      const dataUri = `data:image/svg+xml;base64,${b64}`;
+      setDraft((d: any) => ({ ...d, branding: { ...d.branding, logo_url: dataUri } }));
+    } catch (e: any) {
+      setErr(`Could not load logo: ${e.message}`);
+    }
+  }
 
   function openNew() {
     setDraft(EMPTY);
@@ -197,6 +228,13 @@ export function CustomersPage() {
         {items.map((t) => (
           <Card key={t.org_id} className={styles.card}>
             <CardHeader
+              image={
+                <img
+                  src={(t as any).branding?.logo_url || "/logo.svg"}
+                  alt=""
+                  className={styles.avatar}
+                />
+              }
               header={
                 <div className={styles.row}>
                   <Text weight="semibold">{t.name}</Text>
@@ -334,6 +372,35 @@ export function CustomersPage() {
             value={draft.branding.tagline}
             onChange={(_, d) =>
               setDraft({ ...draft, branding: { ...draft.branding, tagline: d.value } })
+            }
+          />
+          <Label>Brand: bot logo (animated SVG — chat avatar, header icon &amp; favicon)</Label>
+          <div className={styles.colorRow}>
+            <img
+              src={draft.branding.logo_url || "/logo.svg"}
+              alt="logo preview"
+              style={{ width: 40, height: 40, borderRadius: 8, background: "#f3f3f3" }}
+            />
+            <input
+              ref={logoFileRef}
+              type="file"
+              accept="image/svg+xml,.svg"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onPickLogo(f);
+                e.target.value = "";
+              }}
+            />
+            <Button size="small" onClick={() => logoFileRef.current?.click()}>
+              Upload SVG…
+            </Button>
+          </div>
+          <Input
+            value={draft.branding.logo_url}
+            placeholder="/logo.svg, /bots/<org>.svg, https://…/logo.svg, or an uploaded data: URI"
+            onChange={(_, d) =>
+              setDraft({ ...draft, branding: { ...draft.branding, logo_url: d.value } })
             }
           />
           <div className={styles.row}>

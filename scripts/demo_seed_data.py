@@ -28,7 +28,7 @@ CUSTOMERS = [
         "branding": {
             "product_name": "Horizon Travel Concierge",
             "primary_color": "#0E7C86",
-            "logo_url": "/logo.svg",
+            "logo_url": "/bots/horizon-travel.svg",
             "tagline": "Your journey, our care.",
         },
         "template_id": "customer-care-assistant",
@@ -52,7 +52,7 @@ CUSTOMERS = [
         "branding": {
             "product_name": "NovaTech Helpdesk",
             "primary_color": "#7C3AED",
-            "logo_url": "/logo.svg",
+            "logo_url": "/bots/novatech.svg",
             "tagline": "Always-on IT support.",
         },
         "template_id": "knowledge-faq-assistant",
@@ -76,7 +76,7 @@ CUSTOMERS = [
         "branding": {
             "product_name": "Meridian Talent Screener",
             "primary_color": "#1F6FEB",
-            "logo_url": "/logo.svg",
+            "logo_url": "/bots/meridian-hr.svg",
             "tagline": "Fair, fast candidate screening.",
         },
         "template_id": "cv-evaluation-assistant",

@@ -405,6 +405,28 @@ The backend exposes a resolved brand per customer at `GET /v1/branding`
 (global brand overlaid with the customer's own branding). The web apps read
 `public/branding.json` at load, with `VITE_*` overrides.
 
+#### Per-customer bot logo (animated SVG)
+
+Each customer gets its own chatbot logo, used as the **chat avatar**, the
+**header icon**, and the browser **favicon**. It's the `branding.logo_url` field
+on the tenant. There are two ways to set it:
+
+- **New customers (Admin Console):** in *Customers → Onboard/Edit*, click
+  **Upload SVG…** under *Brand: bot logo*. The SVG is validated (no `<script>`,
+  ≤ 100 KB) and stored **inline as a `data:` URI** in `logo_url`, so it needs no
+  separate hosting — it travels with the tenant record and works as both an
+  `<img>` and a favicon. You can also paste any URL into the field instead.
+- **Built-in demo customers (repo):** drop an animated `logo.svg` next to the
+  customer's content at `sample-customers/<org_id>/logo.svg`. At build time
+  `customer-webapp`'s `prebuild` step (`scripts/collect-logos.mjs`) copies every
+  `sample-customers/*/logo.svg` into `public/bots/<org_id>.svg`, and the seed
+  sets `logo_url = /bots/<org_id>.svg`. The Docker build copies `sample-customers`
+  into the image so this also runs in CI/`azd up`.
+
+> Animations: SMIL/CSS animations inside the SVG play in the chat avatar and
+> header (rendered via `<img>`). The browser **favicon shows the first frame
+> only** (browsers don't animate favicons) — by design.
+
 ### 2. Resource prefix (clean re-install)
 
 All Azure resource names derive from `AZURE_RESOURCE_PREFIX` (default

@@ -7,7 +7,6 @@ import {
   Badge,
   makeStyles,
   tokens,
-  Avatar,
   MessageBar,
 } from "@fluentui/react-components";
 import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular } from "@fluentui/react-icons";
@@ -219,6 +218,19 @@ export function App() {
       document.title = `${branding.product_name} — Customer App`;
     }
   }, [branding?.product_name]);
+
+  // Swap the browser tab favicon to the selected customer's logo.
+  useEffect(() => {
+    const href = branding?.logo_url || "/logo.svg";
+    let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!link) {
+      link = document.createElement("link");
+      link.rel = "icon";
+      document.head.appendChild(link);
+    }
+    link.type = "image/svg+xml";
+    link.href = href;
+  }, [branding?.logo_url]);
 
   // Sign in (dev) + load branding whenever the customer changes.
   async function selectCustomer(c: DemoCustomer) {
@@ -568,7 +580,13 @@ export function App() {
             </div>
           ) : (
             <div key={i} className={styles.row} style={{ alignSelf: "flex-start" }}>
-              <Avatar size={28} color="colorful" name={branding?.product_name || "A"} />
+              <img
+                src={branding?.logo_url || "/logo.svg"}
+                alt="assistant"
+                width={28}
+                height={28}
+                style={{ borderRadius: "50%", flexShrink: 0 }}
+              />
               <div className={styles.bubbleBot}>
                 {m.text ? <Markdown text={m.text} /> : busy ? <Spinner size="tiny" /> : ""}
               </div>
