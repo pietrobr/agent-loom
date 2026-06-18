@@ -32,6 +32,14 @@ own no infrastructure.
 - **Per-customer cost attribution** (multi-currency): the admin **Costs** tab
   breaks the monthly Azure bill (shared platform + LLM tokens + embeddings +
   agentic planning) down per customer, with an end-of-month projection.
+- **Distributed tracing console**: the admin **Tracing** tab records the full
+  round trip of every backend request — the ordered spans (Cosmos, Search,
+  agentic retrieval, Foundry), their timings, structured events and errors — and
+  lets you filter by customer, date and severity, then inspect a span waterfall.
+  The capture **level is tunable** (DEBUG/verbose · INFO · WARNING · ERROR) so
+  you can keep everything while debugging or only problem requests in steady
+  state. Traces are stored per-customer in Cosmos with a 14-day auto-expiry; no
+  external APM service is required.
 
 ---
 
@@ -42,7 +50,7 @@ flowchart TB
     subgraph Clients["End users"]
       direction LR
       CW["customer-webapp<br/>brandable chat (SPA)"]
-      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs"]
+      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs · tracing"]
     end
 
     subgraph Azure["Provider Azure subscription — single deployment"]

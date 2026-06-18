@@ -196,6 +196,50 @@ export interface AgentInfo {
   tools: AgentTool[];
 }
 
+// ---- Tracing ---------------------------------------------------------------
+export type TraceLevel = "DEBUG" | "INFO" | "WARNING" | "ERROR";
+
+export interface TraceSummary {
+  id: string;
+  org_id: string;
+  ts: string;
+  method: string;
+  path: string;
+  route?: string;
+  status: number;
+  duration_ms: number;
+  level: TraceLevel;
+  error?: { type: string; message: string } | null;
+  user?: string;
+  span_count?: number;
+}
+export interface TraceEvent {
+  ts_ms: number;
+  level: TraceLevel;
+  message: string;
+  attributes?: Record<string, unknown>;
+}
+export interface TraceSpan {
+  id: string;
+  parent_id?: string | null;
+  name: string;
+  start_ms: number;
+  duration_ms: number;
+  level: TraceLevel;
+  status: "ok" | "error";
+  attributes?: Record<string, unknown>;
+  events?: TraceEvent[];
+  error?: { type: string; message: string } | null;
+}
+export interface TraceDetail extends TraceSummary {
+  spans: TraceSpan[];
+  root_events?: TraceEvent[];
+}
+export interface TracingConfig {
+  level: TraceLevel;
+  levels: TraceLevel[];
+}
+
 // ---- Endpoints -------------------------------------------------------------
 export const api = {
   listTemplates: () => req<Template[]>("/v1/admin/templates"),
@@ -239,6 +283,32 @@ export const api = {
 
   costs: (currency?: string) =>
     req<CostSummary>(`/v1/admin/costs${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),
+
+  // ---- Tracing -------------------------------------------------------------
+  getTracingConfig: () => req<TracingConfig>("/v1/admin/tracing/config"),
+  setTracingConfig: (level: TraceLevel) =>
+    req<TracingConfig>("/v1/admin/tracing/config", {
+      method: "PUT",
+      body: JSON.stringify({ level }),
+    }),
+  listTraces: (params: {
+    org_id?: string;
+    from?: string;
+    to?: string;
+    level?: string;
+    limit?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    if (params.org_id) q.set("org_id", params.org_id);
+    if (params.from) q.set("from", params.from);
+    if (params.to) q.set("to", params.to);
+    if (params.level) q.set("level", params.level);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return req<TraceSummary[]>(`/v1/admin/traces${qs ? `?${qs}` : ""}`);
+  },
+  getTrace: (orgId: string, traceId: string) =>
+    req<TraceDetail>(`/v1/admin/traces/${encodeURIComponent(orgId)}/${encodeURIComponent(traceId)}`),
 
   uploadKnowledge: async (
     orgId: string,

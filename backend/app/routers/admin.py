@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
 from ..security import Principal, require_admin
-from ..services import agentic, blob, cosmos, foundry, search, ciam_groups
+from ..services import agentic, blob, cosmos, foundry, search, ciam_groups, tracing
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 log = logging.getLogger(__name__)
@@ -64,20 +64,25 @@ def upsert_customer(payload: Dict[str, Any], _: Principal = Depends(require_admi
         raise HTTPException(400, "org_id is required")
     payload["id"] = payload["org_id"]
     tenant = Tenant(**payload)
+    tracing.event("Onboarding customer", org_id=tenant.org_id, name=tenant.name)
     # Always provision the per-customer Search index.
-    tenant.search_index = search.ensure_index(tenant.org_id)
+    with tracing.span("search.ensure_index", org_id=tenant.org_id):
+        tenant.search_index = search.ensure_index(tenant.org_id)
     # In the groups model (production), ensure the customer's CIAM security
     # group exists and remember its id so customer tokens resolve to this org.
     existing = cosmos.get_tenant(tenant.org_id)
     tenant.group_id = (existing or {}).get("group_id", "") or tenant.group_id
     if not tenant.group_id:
-        gid = ciam_groups.ensure_group(tenant.org_id, tenant.name)
+        with tracing.span("ciam.ensure_group", org_id=tenant.org_id):
+            gid = ciam_groups.ensure_group(tenant.org_id, tenant.name)
         if gid:
             tenant.group_id = gid
-    saved = cosmos.save_tenant(tenant.model_dump())
+    with tracing.span("cosmos.save_tenant", org_id=tenant.org_id):
+        saved = cosmos.save_tenant(tenant.model_dump())
     # Track lifecycle: an enabled customer has an open active period; a disabled
     # one is closed. This drives per-month active-days proration in the cost view.
-    cosmos.record_lifecycle(tenant.org_id, tenant.name, active=tenant.enabled)
+    with tracing.span("cosmos.record_lifecycle", org_id=tenant.org_id):
+        cosmos.record_lifecycle(tenant.org_id, tenant.name, active=tenant.enabled)
     return saved
 
 

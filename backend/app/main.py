@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .middleware import TenantContextMiddleware
-from .routers import admin, branding, catalog, chat, demo, dev_auth, me
+from .routers import admin, branding, catalog, chat, demo, dev_auth, me, tracing as tracing_router
+from .services.tracing import TracingMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -21,6 +22,12 @@ app = FastAPI(
 )
 
 app.add_middleware(TenantContextMiddleware)
+
+# Request tracing: outer of the tenant-context middleware (so it can read the
+# resolved principal and record auth failures) but inner of CORS. Records one
+# trace per request — the round trip through Cosmos/Search/Foundry — for the
+# Admin Console's Tracing page.
+app.add_middleware(TracingMiddleware)
 
 # Security headers — set after CORS so they apply to every response.
 @app.middleware("http")
@@ -68,3 +75,4 @@ app.include_router(admin.router)
 app.include_router(dev_auth.router)
 app.include_router(demo.router)
 app.include_router(me.router)
+app.include_router(tracing_router.router)

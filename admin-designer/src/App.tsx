@@ -24,6 +24,7 @@ import { CustomersPage } from "./pages/CustomersPage";
 import { InstancesPage } from "./pages/InstancesPage";
 import { MeteringPage } from "./pages/MeteringPage";
 import { CostsPage } from "./pages/CostsPage";
+import { TracingPage } from "./pages/TracingPage";
 
 const useStyles = makeStyles({
   shell: { minHeight: "100vh", display: "flex", flexDirection: "column" },
@@ -70,6 +71,8 @@ export function App() {
     ? "/instances"
     : loc.pathname.startsWith("/metering")
     ? "/metering"
+    : loc.pathname.startsWith("/tracing")
+    ? "/tracing"
     : loc.pathname.startsWith("/costs")
     ? "/costs"
     : "/";
@@ -183,6 +186,7 @@ export function App() {
         <Tab value="/customers">Customers</Tab>
         <Tab value="/instances">Instances</Tab>
         <Tab value="/metering">Metering</Tab>
+        <Tab value="/tracing">Tracing</Tab>
         <Tab value="/costs">Costs</Tab>
       </TabList>
 
@@ -192,6 +196,7 @@ export function App() {
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/instances" element={<InstancesPage />} />
           <Route path="/metering" element={<MeteringPage />} />
+          <Route path="/tracing" element={<TracingPage />} />
           <Route path="/costs" element={<CostsPage />} />
         </Routes>
       </main>

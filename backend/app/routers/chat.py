@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sse_starlette.sse import EventSourceResponse
 from ..models import ChatRequest
 from ..security import Principal, get_principal
-from ..services import agentic, cosmos, foundry, search
+from ..services import agentic, cosmos, foundry, search, tracing
 
 router = APIRouter(prefix="/v1", tags=["chat"])
 log = logging.getLogger(__name__)
@@ -126,6 +126,8 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     tenant = cosmos.get_tenant(p.org_id)
     quota = int((tenant or {}).get("monthly_token_quota", 0) or 0)
     if quota > 0 and cosmos.month_token_usage(p.org_id) >= quota:
+        tracing.event("Monthly token quota reached", level="WARNING",
+                      org_id=p.org_id, quota=quota)
         raise HTTPException(
             status_code=429,
             detail=(
@@ -146,7 +148,9 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
         raise HTTPException(409, "instance is not bound to a Foundry agent")
 
     conversation_id = req.conversation_id or str(uuid.uuid4())
-    thread_id = _thread_id_for(p.org_id, conversation_id)
+    with tracing.span("foundry.resolve_thread", instance_id=req.instance_id,
+                      conversation_id=conversation_id):
+        thread_id = _thread_id_for(p.org_id, conversation_id)
 
     # Retrieve this instance's private knowledge. When the instance opted into
     # Azure AI Search agentic retrieval, run the knowledge base (LLM query
@@ -157,20 +161,26 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     hits: list = []
     if instance.get("agentic_retrieval"):
         try:
-            system_prompt = (instance.get("overrides") or {}).get("instructions_addendum") or ""
-            answer, refs, agentic_tokens = await anyio.to_thread.run_sync(
-                agentic.retrieve, p.org_id, req.message, req.instance_id, system_prompt
-            )
+            with tracing.span("agentic.retrieve", instance_id=req.instance_id):
+                system_prompt = (instance.get("overrides") or {}).get("instructions_addendum") or ""
+                answer, refs, agentic_tokens = await anyio.to_thread.run_sync(
+                    agentic.retrieve, p.org_id, req.message, req.instance_id, system_prompt
+                )
             hits = refs
             # If the KB returned no grounding refs but did synthesize an answer,
             # pass that answer as a single knowledge item so the agent can use it.
             if not hits and answer:
                 hits = [{"title": "Agentic answer", "content": answer, "source": "agentic"}]
             agentic_used = True
+            tracing.event("Agentic retrieval done", refs=len(refs), tokens=agentic_tokens)
         except Exception as exc:  # pragma: no cover - degrade to standard RAG
+            tracing.event("Agentic retrieve failed; falling back to RAG",
+                          level="WARNING", error=str(exc))
             log.warning("agentic retrieve failed for %s; falling back: %s", p.org_id, exc)
     if not agentic_used:
-        hits = search.search(p.org_id, req.message, instance_id=req.instance_id, top=5)
+        with tracing.span("search.rag", instance_id=req.instance_id):
+            hits = search.search(p.org_id, req.message, instance_id=req.instance_id, top=5)
+    tracing.event("Knowledge retrieved", kb_hits=len(hits), agentic=agentic_used)
 
     async def event_stream() -> AsyncGenerator[dict, None]:
         yield {"event": "meta", "data": json.dumps({

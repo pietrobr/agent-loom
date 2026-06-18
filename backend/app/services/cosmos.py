@@ -21,6 +21,10 @@ log = logging.getLogger(__name__)
 
 
 CONTAINERS = ["catalog", "tenants", "instances", "metering", "threads"]
+# The traces container is created separately so we can give it a default TTL
+# (auto-expire stored traces) — see ensure_containers().
+TRACES_CONTAINER = "traces"
+_TRACE_TTL_SECONDS = 14 * 24 * 3600
 
 
 @lru_cache(maxsize=1)
@@ -43,6 +47,13 @@ def ensure_containers() -> None:
     db = _client().create_database_if_not_exists(s.cosmos_database)
     for name in CONTAINERS:
         db.create_container_if_not_exists(id=name, partition_key=PartitionKey(path="/org_id"))
+    # Traces auto-expire via a container-level default TTL; the tracing-config
+    # doc opts out per-item (ttl=-1) so the configured level is never evicted.
+    db.create_container_if_not_exists(
+        id=TRACES_CONTAINER,
+        partition_key=PartitionKey(path="/org_id"),
+        default_ttl=_TRACE_TTL_SECONDS,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -564,4 +575,126 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         "total_cost": round(grand_total, 2),
         "by_month": list(reversed(by_month)),  # newest first
     }
+
+
+# --------------------------------------------------------------------------- #
+# Tracing (request traces + capture-level config)                             #
+# --------------------------------------------------------------------------- #
+# The tracing config lives in the traces container under the system partition,
+# with ttl=-1 so the container's default TTL never evicts it.
+_TRACING_CONFIG_ID = "tracing-config"
+_traces_ready = False
+
+
+def _traces() -> Any:
+    """Container client for traces, creating the container once if missing.
+
+    The traces container is added after initial provisioning, so on an existing
+    database it may not exist yet. Create it lazily (idempotent, once per
+    process) with the auto-expire TTL.
+    """
+    global _traces_ready
+    if not _traces_ready:
+        try:
+            _db().create_container_if_not_exists(
+                id=TRACES_CONTAINER,
+                partition_key=PartitionKey(path="/org_id"),
+                default_ttl=_TRACE_TTL_SECONDS,
+            )
+        except Exception as exc:  # pragma: no cover
+            log.debug("ensure traces container failed: %s", exc)
+        _traces_ready = True
+    return _container(TRACES_CONTAINER)
+
+
+def get_tracing_config() -> Dict[str, Any]:
+    try:
+        doc = _traces().read_item(item=_TRACING_CONFIG_ID, partition_key=SYSTEM_ORG)
+        return doc
+    except exceptions.CosmosResourceNotFoundError:
+        pass
+    except Exception as exc:  # pragma: no cover
+        log.debug("get_tracing_config failed: %s", exc)
+    return {"id": _TRACING_CONFIG_ID, "org_id": SYSTEM_ORG, "kind": "config", "level": "INFO"}
+
+
+def set_tracing_config(level: str) -> Dict[str, Any]:
+    doc = {
+        "id": _TRACING_CONFIG_ID,
+        "org_id": SYSTEM_ORG,
+        "kind": "config",
+        "level": level,
+        "ttl": -1,  # never expire
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return _traces().upsert_item(doc)
+
+
+def save_trace(doc: Dict[str, Any]) -> None:
+    """Persist a finished request trace (best-effort; never raises)."""
+    try:
+        _traces().upsert_item(doc)
+    except Exception as exc:  # pragma: no cover - tracing must not break requests
+        log.debug("save_trace failed: %s", exc)
+
+
+def _trace_partitions() -> List[str]:
+    """Org partitions that may hold traces: every tenant + the system org."""
+    orgs = {SYSTEM_ORG}
+    try:
+        for t in list_tenants():
+            if t.get("org_id"):
+                orgs.add(t["org_id"])
+    except Exception:
+        pass
+    return list(orgs)
+
+
+def query_traces(
+    org_id: Optional[str] = None,
+    frm: Optional[str] = None,
+    to: Optional[str] = None,
+    level: Optional[str] = None,
+    limit: int = 100,
+) -> List[Dict[str, Any]]:
+    """List trace summaries, newest first, filtered by customer/date/level.
+
+    Returns compact rows (no spans) for the list view. ``frm``/``to`` are ISO
+    timestamps (inclusive lower / exclusive upper). ``level`` keeps only traces
+    at or above that severity.
+    """
+    from .tracing import LEVELS, level_value  # local import to avoid cycle
+
+    _traces()  # ensure container exists
+    min_level = level_value(level) if level else 0
+    clauses = ["c.kind = 'trace'"]
+    params: List[Dict[str, Any]] = []
+    if frm:
+        clauses.append("c.ts >= @frm")
+        params.append({"name": "@frm", "value": frm})
+    if to:
+        clauses.append("c.ts < @to")
+        params.append({"name": "@to", "value": to})
+    sql = (
+        "SELECT c.id, c.org_id, c.ts, c.method, c.path, c.route, c.status, "
+        "c.duration_ms, c.level, c.error, c.user, c.span_count "
+        f"FROM c WHERE {' AND '.join(clauses)} ORDER BY c.ts DESC"
+    )
+
+    partitions = [org_id] if org_id else _trace_partitions()
+    rows: List[Dict[str, Any]] = []
+    for org in partitions:
+        try:
+            rows.extend(query(TRACES_CONTAINER, org, sql, params))
+        except Exception as exc:  # pragma: no cover
+            log.debug("query_traces partition %s failed: %s", org, exc)
+    if min_level:
+        rows = [r for r in rows if LEVELS.get(r.get("level", "INFO"), 20) >= min_level]
+    rows.sort(key=lambda r: r.get("ts", ""), reverse=True)
+    return rows[: max(1, min(limit, 500))]
+
+
+def get_trace(org_id: str, trace_id: str) -> Optional[Dict[str, Any]]:
+    return read(TRACES_CONTAINER, org_id, trace_id)
+
 
