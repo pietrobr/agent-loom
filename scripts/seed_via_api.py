@@ -40,9 +40,48 @@ from demo_seed_data import CUSTOMERS, load_knowledge_dir  # noqa: E402
 BACKEND_URL = (os.environ.get("BACKEND_URL") or "").rstrip("/")
 MODEL_OVERRIDE = os.environ.get("FOUNDRY_MODEL_DEPLOYMENT")
 
-# Generous timeout: instance creation provisions a Foundry agent and knowledge
-# upload runs embeddings, both of which take a few seconds.
-HTTP = httpx.Client(timeout=httpx.Timeout(180.0))
+# Generous timeout. On a FRESH deploy the first customer create is the slow
+# path: it provisions a per-customer Azure AI Search index, creates a CIAM
+# group and writes to Cosmos — all over private endpoints that are still cold
+# (first DNS resolution + TCP handshake through private DNS zones). A just-
+# provisioned Search service also creates its first index more slowly. So we
+# allow a long read timeout but keep connect short to fail fast on real DNS
+# issues, and retry the writes with backoff (see _post_with_retry).
+HTTP = httpx.Client(timeout=httpx.Timeout(420.0, connect=30.0))
+
+# Retryable conditions for the slow first-call-through-cold-private-endpoint.
+_RETRY_STATUSES = {500, 502, 503, 504}
+
+
+def _post_with_retry(url: str, *, max_attempts: int = 4, **kwargs) -> httpx.Response:
+    """POST that tolerates the cold-start latency of a fresh deployment.
+
+    Retries on read timeouts, transport errors and 5xx responses with
+    exponential backoff. The downstream operations (Search index creation,
+    Cosmos writes via private endpoint) are idempotent on ``org_id``, so a
+    retried customer create is safe.
+    """
+    backoff = 10.0
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            r = HTTP.post(url, **kwargs)
+            if r.status_code in _RETRY_STATUSES and attempt < max_attempts:
+                print(f"  … {url.rsplit('/', 1)[-1]} returned {r.status_code}, "
+                      f"retrying in {backoff:.0f}s (attempt {attempt}/{max_attempts})")
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            return r
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            last_exc = exc
+            if attempt >= max_attempts:
+                break
+            print(f"  … {exc.__class__.__name__} on POST, retrying in "
+                  f"{backoff:.0f}s (attempt {attempt}/{max_attempts})")
+            time.sleep(backoff)
+            backoff *= 2
+    raise SystemExit(f"POST {url} failed after {max_attempts} attempts: {last_exc}")
 
 
 def _truthy(val: str | None, default: bool = True) -> bool:
@@ -68,6 +107,23 @@ def _wait_for_backend(max_wait_s: int = 360) -> None:
         if time.time() >= deadline:
             raise SystemExit(f"Backend did not become healthy within {max_wait_s}s")
         time.sleep(5)
+
+
+def _warm_backend(headers: dict) -> None:
+    """Warm the backend's downstream private-endpoint connections.
+
+    ``/healthz`` is trivial and returns before the Container App has ever talked
+    to Cosmos or Search, so the first *real* admin write pays the full cold cost
+    (private DNS resolution + TCP handshake). Issuing a couple of cheap admin
+    GETs first opens those connections, so the heavy customer-create POST runs
+    against an already-warm path. Best-effort: failures here are non-fatal.
+    """
+    for path in ("/v1/admin/templates", "/v1/admin/customers"):
+        try:
+            HTTP.get(f"{BACKEND_URL}{path}", headers=headers, timeout=120.0)
+        except Exception as exc:  # noqa: BLE001 - warming is best-effort
+            print(f"  (warm-up {path} skipped: {exc.__class__.__name__})")
+    print("Backend downstream connections warmed.")
 
 
 def _admin_token() -> str:
@@ -178,7 +234,12 @@ def _seed_customers(headers: dict) -> None:
             "monthly_token_quota": c["monthly_token_quota"],
             "branding": c["branding"],
         }
-        r = HTTP.post(f"{BACKEND_URL}/v1/admin/customers", json=tenant, headers=headers)
+        # Use the retrying POST: on a fresh deploy this first call creates the
+        # Search index + CIAM group + Cosmos record over still-cold private
+        # endpoints and can exceed a single request's patience.
+        r = _post_with_retry(
+            f"{BACKEND_URL}/v1/admin/customers", json=tenant, headers=headers
+        )
         r.raise_for_status()
         print("  Tenant saved.")
 
@@ -228,6 +289,7 @@ def main() -> None:
 
     _wait_for_backend()
     headers = {"Authorization": f"Bearer {_admin_token()}"}
+    _warm_backend(headers)
     _seed_templates(headers)
     _seed_customers(headers)
     print("\nDone.")
