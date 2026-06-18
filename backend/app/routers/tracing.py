@@ -43,12 +43,15 @@ def set_tracing_config(
 def list_traces(
     _: Principal = Depends(require_admin),
     org_id: Optional[str] = Query(None, description="Filter to one customer"),
+    exclude_system: bool = Query(False, description="Exclude the _system (admin) partition"),
     frm: Optional[str] = Query(None, alias="from", description="ISO lower bound (inclusive)"),
     to: Optional[str] = Query(None, description="ISO upper bound (exclusive)"),
     level: Optional[str] = Query(None, description="Minimum severity"),
     limit: int = Query(100, ge=1, le=500),
 ) -> List[Dict[str, Any]]:
-    return cosmos.query_traces(org_id=org_id, frm=frm, to=to, level=level, limit=limit)
+    return cosmos.query_traces(
+        org_id=org_id, exclude_system=exclude_system, frm=frm, to=to, level=level, limit=limit
+    )
 
 
 @router.get("/traces/{org_id}/{trace_id}")

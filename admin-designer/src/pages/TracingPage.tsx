@@ -101,6 +101,10 @@ const LEVEL_HELP: Record<TraceLevel, string> = {
   ERROR: "Capture only failed requests.",
 };
 
+// Sentinel for the customer filter: "all customers but not the _system
+// (admin) partition". Empty string = truly all partitions including _system.
+const NO_SYSTEM = "__no_system__";
+
 function levelBadge(level: TraceLevel) {
   return (
     <Badge appearance="filled" color={LEVEL_COLOR[level] || "informative"}>
@@ -134,7 +138,7 @@ export function TracingPage() {
   const [err, setErr] = useState("");
 
   // Filters
-  const [org, setOrg] = useState<string>("");
+  const [org, setOrg] = useState<string>(NO_SYSTEM);
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
   const [minLevel, setMinLevel] = useState<string>("");
@@ -181,7 +185,8 @@ export function TracingPage() {
     setErr("");
     try {
       const rows = await api.listTraces({
-        org_id: org || undefined,
+        org_id: org && org !== NO_SYSTEM ? org : undefined,
+        exclude_system: org === NO_SYSTEM,
         from: toIso(from),
         to: toIso(to),
         level: minLevel || undefined,
@@ -277,11 +282,18 @@ export function TracingPage() {
               <Label size="small">Customer</Label>
               <Dropdown
                 placeholder="All customers"
-                value={org ? nameByOrg[org] || org : "All customers"}
+                value={
+                  org === NO_SYSTEM
+                    ? "All customers (excl. system)"
+                    : org
+                    ? nameByOrg[org] || org
+                    : "All customers"
+                }
                 selectedOptions={[org]}
                 onOptionSelect={(_, d) => setOrg(d.optionValue as string)}
               >
                 <Option value="">All customers</Option>
+                <Option value={NO_SYSTEM}>All customers (excl. system)</Option>
                 <Option value="_system">_system (admin)</Option>
                 {tenants.map((t) => (
                   <Option key={t.org_id} value={t.org_id}>
@@ -318,7 +330,7 @@ export function TracingPage() {
             <Button
               appearance="subtle"
               onClick={() => {
-                setOrg("");
+                setOrg(NO_SYSTEM);
                 setFrom("");
                 setTo("");
                 setMinLevel("");

@@ -656,12 +656,14 @@ def query_traces(
     to: Optional[str] = None,
     level: Optional[str] = None,
     limit: int = 100,
+    exclude_system: bool = False,
 ) -> List[Dict[str, Any]]:
     """List trace summaries, newest first, filtered by customer/date/level.
 
     Returns compact rows (no spans) for the list view. ``frm``/``to`` are ISO
     timestamps (inclusive lower / exclusive upper). ``level`` keeps only traces
-    at or above that severity.
+    at or above that severity. ``exclude_system`` drops the ``_system`` (admin)
+    partition when listing across all customers.
     """
     from .tracing import LEVELS, level_value  # local import to avoid cycle
 
@@ -681,7 +683,12 @@ def query_traces(
         f"FROM c WHERE {' AND '.join(clauses)} ORDER BY c.ts DESC"
     )
 
-    partitions = [org_id] if org_id else _trace_partitions()
+    if org_id:
+        partitions = [org_id]
+    else:
+        partitions = _trace_partitions()
+        if exclude_system:
+            partitions = [p for p in partitions if p != SYSTEM_ORG]
     rows: List[Dict[str, Any]] = []
     for org in partitions:
         try:

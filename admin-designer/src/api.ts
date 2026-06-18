@@ -293,6 +293,7 @@ export const api = {
     }),
   listTraces: (params: {
     org_id?: string;
+    exclude_system?: boolean;
     from?: string;
     to?: string;
     level?: string;
@@ -300,6 +301,7 @@ export const api = {
   } = {}) => {
     const q = new URLSearchParams();
     if (params.org_id) q.set("org_id", params.org_id);
+    if (params.exclude_system) q.set("exclude_system", "true");
     if (params.from) q.set("from", params.from);
     if (params.to) q.set("to", params.to);
     if (params.level) q.set("level", params.level);

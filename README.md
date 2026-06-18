@@ -2,6 +2,15 @@
 
 # AgentLoom
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Deploy: azd](https://img.shields.io/badge/Deploy-azd%20up-0078D4?logo=microsoftazure&logoColor=white)](#deploy-with-a-single-azd-up)
+[![Azure Container Apps](https://img.shields.io/badge/Azure-Container%20Apps-0078D4?logo=microsoftazure&logoColor=white)](#architecture)
+[![Microsoft Foundry](https://img.shields.io/badge/Microsoft-Foundry%20Agents-512BD4)](#architecture)
+[![Backend: FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)](backend)
+[![Frontend: React + Vite](https://img.shields.io/badge/Frontend-React%20%2B%20Vite-61DAFB?logo=react&logoColor=black)](admin-designer)
+[![IaC: Bicep](https://img.shields.io/badge/IaC-Bicep-0078D4?logo=microsoftazure&logoColor=white)](infra)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#contributing)
+
 > **AgentLoom** is an open-source, multi-tenant SaaS accelerator that lets a
 > **provider** company serve AI agents to its small- and medium-sized customers
 > in a **centralized SaaS model**, powered by **Microsoft Foundry Agent
@@ -40,6 +49,23 @@ own no infrastructure.
   you can keep everything while debugging or only problem requests in steady
   state. Traces are stored per-customer in Cosmos with a 14-day auto-expiry; no
   external APM service is required.
+
+---
+
+## Table of contents
+
+- [Architecture](#architecture)
+- [Repository layout](#repository-layout)
+- [Prerequisites](#prerequisites)
+- [Deploy with a single `azd up`](#deploy-with-a-single-azd-up)
+- [Walkthrough](#walkthrough)
+- [Provider customization](#provider-customization)
+- [Local development](#local-development)
+- [Demo data](#demo-data)
+- [Security & policy notes](#security--policy-notes)
+- [Acceptance checklist](#acceptance-checklist)
+- [Contributing](#contributing)
+- [License](#license)
 
 ---
 
