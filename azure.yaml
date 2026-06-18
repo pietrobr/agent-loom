@@ -31,7 +31,7 @@ services:
       path: Dockerfile
       context: ../
 hooks:
-  predeploy:
+  prepackage:
     windows:
       shell: pwsh
       run: azd env set APP_BUILD (git rev-list --count HEAD)
