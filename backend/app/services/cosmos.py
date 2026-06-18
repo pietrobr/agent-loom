@@ -223,6 +223,27 @@ def metering_summary(org_id: str) -> Dict[str, Any]:
     }
 
 
+def month_token_usage(org_id: str, month: Optional[str] = None) -> int:
+    """Total chat tokens a customer has consumed in a calendar month.
+
+    Defaults to the current UTC month (``YYYY-MM``). Mirrors the exclusions of
+    :func:`metering_summary` (lifecycle record, embedding and agentic-retrieval
+    events) so the number used for quota enforcement matches the usage shown to
+    the customer. Used to enforce ``Tenant.monthly_token_quota``.
+    """
+    if month is None:
+        month = datetime.now(timezone.utc).strftime("%Y-%m")
+    rows = query("metering", org_id, "SELECT * FROM c")
+    total = 0
+    for r in rows:
+        if r.get("id") == _LIFECYCLE_ID or r.get("kind") in (_LIFECYCLE_ID, "embedding", "agentic"):
+            continue
+        if _event_month(r) != month:
+            continue
+        total += int(r.get("total_tokens", 0) or 0)
+    return total
+
+
 def _event_month(r: Dict[str, Any]) -> str:
     """Calendar month (YYYY-MM) for a metering event, ISO `ts` first then `_ts`."""
     ts = r.get("ts")

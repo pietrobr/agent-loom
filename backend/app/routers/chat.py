@@ -118,6 +118,22 @@ async def extract_document(
 
 @router.post("/chat")
 async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> EventSourceResponse:
+    # Enforce the customer's monthly token allowance *before* doing any work.
+    # The quota (Tenant.monthly_token_quota) is set per customer in the Admin
+    # Console and can be raised or lowered at any time. A value <= 0 means
+    # "unlimited". When this month's usage has already reached the quota, refuse
+    # with 429 and a clear message the customer app surfaces directly.
+    tenant = cosmos.get_tenant(p.org_id)
+    quota = int((tenant or {}).get("monthly_token_quota", 0) or 0)
+    if quota > 0 and cosmos.month_token_usage(p.org_id) >= quota:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "You've reached your monthly message allowance for this assistant. "
+                "Please contact your administrator to increase your quota."
+            ),
+        )
+
     instance = cosmos.get_instance(p.org_id, req.instance_id)
     if not instance:
         raise HTTPException(404, "instance not found for this org")
