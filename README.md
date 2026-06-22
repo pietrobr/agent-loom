@@ -40,15 +40,26 @@ own no infrastructure.
   the Foundry chat model).
 - **Per-customer cost attribution** (multi-currency): the admin **Costs** tab
   breaks the monthly Azure bill (shared platform + LLM tokens + embeddings +
-  agentic planning) down per customer, with an end-of-month projection.
+  agentic planning) down per customer, with an end-of-month projection. The
+  **Application Insights** line item is counted only while trace mirroring is
+  enabled (see below), so the breakdown reflects the saving when it's off.
 - **Distributed tracing console**: the admin **Tracing** tab records the full
   round trip of every backend request — the ordered spans (Cosmos, Search,
   agentic retrieval, Foundry), their timings, structured events and errors — and
   lets you filter by customer, date and severity, then inspect a span waterfall.
-  The capture **level is tunable** (DEBUG/verbose · INFO · WARNING · ERROR) so
-  you can keep everything while debugging or only problem requests in steady
-  state. Traces are stored per-customer in Cosmos with a 14-day auto-expiry; no
-  external APM service is required.
+  Each model call is enriched with **GenAI attributes** (`gen_ai.*`): model
+  deployment, input/output/total tokens and — when content recording is on —
+  the prompt and response text. The capture **level is tunable**
+  (DEBUG/verbose · INFO · WARNING · ERROR) so you can keep everything while
+  debugging or only problem requests in steady state. Traces are stored
+  per-customer in Cosmos with a 14-day auto-expiry; no external APM service is
+  required.
+- **Optional Application Insights / Foundry tracing**: the admin **Infra** tab
+  lets an operator turn on, **at runtime (no redeploy)**, mirroring of request +
+  GenAI spans to **Azure Application Insights** — wired to the Foundry project so
+  the spans also surface in the **Foundry portal**. A second toggle enables
+  **prompt/response content recording** (off by default for privacy/cost). Both
+  are gated server-side, so nothing is ingested — or billed — until you opt in.
 
 ---
 
@@ -76,7 +87,7 @@ flowchart TB
     subgraph Clients["End users"]
       direction LR
       CW["customer-webapp<br/>brandable chat (SPA)"]
-      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs · tracing"]
+      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs · tracing · infra"]
     end
 
     subgraph Azure["Provider Azure subscription — single deployment"]
@@ -90,6 +101,8 @@ flowchart TB
       end
 
       MI(["User-assigned<br/>Managed Identity"])
+
+      OBS["Application Insights + Log Analytics<br/>opt-in GenAI tracing (runtime toggle)"]
 
       subgraph DataPlane["Data plane · private endpoints (public access OFF)"]
         direction LR
@@ -121,6 +134,8 @@ flowchart TB
     API -- "secrets" --> KV
     AG --> CHAT
     SR -. "agentic query planning" .-> CHAT
+    API -. "opt-in GenAI traces" .-> OBS
+    OBS -. "App Insights connection" .-> FDRY
 
     MI -. "least-privilege RBAC" .-> COS & BL & SR & FDRY & KV
 
@@ -140,6 +155,7 @@ flowchart TB
     class WEB,API compute;
     class SR,AG,CHAT,EMB ai;
     class MI ident;
+    class OBS compute;
     class DEV dev;
     class PROD prod;
 ```
@@ -931,7 +947,13 @@ Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 - 🌐 **HTTPS + CORS + security headers.** Container Apps ingress is HTTPS-only
   (`allowInsecure=false`); CORS is restricted to the web origins; responses set
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and HSTS.
-- 📊 **Diagnostics** flow to Log Analytics; all resources are tagged.
+- 📊 **Diagnostics** flow to Log Analytics; all resources are tagged. Mirroring
+  request/GenAI spans to **Application Insights** is **opt-in at runtime** (admin
+  **Infra** tab) and off by default, so no telemetry is ingested until enabled.
+- 🔏 **Prompt/response privacy.** GenAI **content recording** (capturing prompt
+  and response text on traces) is a **separate, off-by-default** toggle —
+  customer prompts may contain personal data, so enable it deliberately and only
+  where your data-handling policy allows.
 
 ---
 

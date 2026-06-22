@@ -41,6 +41,7 @@
     "log_analytics": 12.0,
     "storage": 3.0,
     "key_vault": 1.0,
+    "app_insights": 8.0,
     "ai_foundry_base": 0.0
   }
 }

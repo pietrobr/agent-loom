@@ -8,13 +8,31 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .middleware import TenantContextMiddleware
-from .routers import admin, branding, catalog, chat, demo, dev_auth, me, tracing as tracing_router
+from .routers import admin, branding, catalog, chat, demo, dev_auth, me, infra as infra_router, tracing as tracing_router
 from .services.tracing import TracingMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 settings = get_settings()
 
+# Application Insights / OpenTelemetry — configured only when a connection string
+# is present (injected by infra). On local dev or when App Insights is off this
+# is a no-op, so the app behaves exactly as before. Best-effort: a telemetry
+# setup failure must never prevent the API from starting.
+if settings.applicationinsights_connection_string:
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+
+        configure_azure_monitor(
+            connection_string=settings.applicationinsights_connection_string,
+            logger_name="agentloom",
+        )
+        logging.getLogger(__name__).info("Application Insights telemetry enabled")
+    except Exception as exc:  # pragma: no cover - telemetry must not break startup
+        logging.getLogger(__name__).warning("App Insights setup failed: %s", exc)
+
+# FastAPI is auto-instrumented by the Azure Monitor distro (configure_azure_monitor
+# above) — Microsoft's guidance is NOT to also call instrument_app manually.
 app = FastAPI(
     title=f"{settings.product_name} API",
     version="1.0.0",
@@ -76,3 +94,4 @@ app.include_router(dev_auth.router)
 app.include_router(demo.router)
 app.include_router(me.router)
 app.include_router(tracing_router.router)
+app.include_router(infra_router.router)

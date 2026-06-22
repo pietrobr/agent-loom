@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sse_starlette.sse import EventSourceResponse
 from ..models import ChatRequest
 from ..security import Principal, get_principal
+from ..config import get_settings
 from ..services import agentic, cosmos, foundry, search, tracing
 
 router = APIRouter(prefix="/v1", tags=["chat"])
@@ -147,6 +148,13 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     if not agent_id:
         raise HTTPException(409, "instance is not bound to a Foundry agent")
 
+    # Model deployment backing this instance's agent (for trace attribution).
+    model_name = (
+        instance.get("model")
+        or template.get("model")
+        or get_settings().foundry_model_deployment
+    )
+
     conversation_id = req.conversation_id or str(uuid.uuid4())
     with tracing.span("foundry.resolve_thread", instance_id=req.instance_id,
                       conversation_id=conversation_id):
@@ -211,21 +219,46 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             finally:
                 anyio.from_thread.run(send_queue.aclose)
 
-        async with anyio.create_task_group() as tg:
-            tg.start_soon(anyio.to_thread.run_sync, _run_sync)
-            async for ev, data in recv_queue:
-                if ev == "usage":
-                    try:
-                        usage_info = json.loads(data)
-                    except Exception:
-                        pass
-                    yield {"event": "usage", "data": data}
-                elif ev == "token":
-                    yield {"event": "token", "data": data}
-                elif ev == "error":
-                    yield {"event": "error", "data": data}
-                elif ev == "done":
-                    yield {"event": "done", "data": ""}
+        # Span around the model run so the Tracing page shows the GenAI call,
+        # its duration and (after completion) the token usage + model.
+        completion_parts: list[str] = []
+        with tracing.span("foundry.stream_run", model=model_name,
+                          agent=agent_id, conversation_id=conversation_id) as model_span:
+            async with anyio.create_task_group() as tg:
+                tg.start_soon(anyio.to_thread.run_sync, _run_sync)
+                async for ev, data in recv_queue:
+                    if ev == "usage":
+                        try:
+                            usage_info = json.loads(data)
+                        except Exception:
+                            pass
+                        yield {"event": "usage", "data": data}
+                    elif ev == "token":
+                        completion_parts.append(data)
+                        yield {"event": "token", "data": data}
+                    elif ev == "error":
+                        yield {"event": "error", "data": data}
+                    elif ev == "done":
+                        yield {"event": "done", "data": ""}
+            # GenAI semantic-convention attributes on the model span (and the
+            # OTEL span for App Insights). Prompt/response text only when the
+            # content-recording infra toggle is on.
+            tracing.annotate_genai(
+                model_span,
+                model=model_name,
+                input_tokens=usage_info.get("input", 0),
+                output_tokens=usage_info.get("output", 0),
+                total_tokens=usage_info.get("total", 0),
+                prompt=req.message,
+                completion="".join(completion_parts),
+            )
+        tracing.event(
+            "Model response",
+            model=model_name,
+            input_tokens=usage_info.get("input", 0),
+            output_tokens=usage_info.get("output", 0),
+            total_tokens=usage_info.get("total", 0),
+        )
 
         cosmos.log_metering({
             "id": str(uuid.uuid4()),

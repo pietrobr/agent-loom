@@ -240,6 +240,15 @@ export interface TracingConfig {
   levels: TraceLevel[];
 }
 
+export interface InfraConfig {
+  app_insights_enabled: boolean;
+  // Record prompt/response text on GenAI spans (privacy/cost sensitive).
+  gen_ai_content_recording: boolean;
+  // Whether the App Insights connection string is actually injected by infra.
+  // When false the toggle has no effect until the next deploy wires it.
+  app_insights_wired: boolean;
+}
+
 // ---- Endpoints -------------------------------------------------------------
 export const api = {
   listTemplates: () => req<Template[]>("/v1/admin/templates"),
@@ -311,6 +320,14 @@ export const api = {
   },
   getTrace: (orgId: string, traceId: string) =>
     req<TraceDetail>(`/v1/admin/traces/${encodeURIComponent(orgId)}/${encodeURIComponent(traceId)}`),
+
+  // ---- Infra ---------------------------------------------------------------
+  getInfraConfig: () => req<InfraConfig>("/v1/admin/infra/config"),
+  setInfraConfig: (patch: Partial<Pick<InfraConfig, "app_insights_enabled" | "gen_ai_content_recording">>) =>
+    req<InfraConfig>("/v1/admin/infra/config", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
 
   uploadKnowledge: async (
     orgId: string,

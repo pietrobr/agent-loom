@@ -479,7 +479,12 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         doc_count[org] = search_svc.document_count(org)
 
     infra = pricing.shared_infrastructure(currency)
-    infra_monthly = pricing.shared_monthly_total(currency)
+    # Application Insights is consumption-based and only incurs cost while the
+    # write toggle is on (Admin → Infra). Drop it from the breakdown/totals when
+    # disabled so the page reflects the saving.
+    if not get_infra_config().get("app_insights_enabled", False):
+        infra.pop("app_insights", None)
+    infra_monthly = round(sum(infra.values()), 2)
 
     # Weighted infra split. A client's share is a blend of its token usage, call
     # volume and indexed document count (each normalized within the month). This
@@ -583,6 +588,9 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
 # The tracing config lives in the traces container under the system partition,
 # with ttl=-1 so the container's default TTL never evicts it.
 _TRACING_CONFIG_ID = "tracing-config"
+# Infra toggles (e.g. whether to mirror request traces to Application Insights)
+# share the same system-partition config document store, ttl=-1.
+_INFRA_CONFIG_ID = "infra-config"
 _traces_ready = False
 
 
@@ -624,6 +632,43 @@ def set_tracing_config(level: str) -> Dict[str, Any]:
         "org_id": SYSTEM_ORG,
         "kind": "config",
         "level": level,
+        "ttl": -1,  # never expire
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return _traces().upsert_item(doc)
+
+
+def get_infra_config() -> Dict[str, Any]:
+    """Infra toggles. ``app_insights_enabled`` gates mirroring request traces to
+    Application Insights — default False so we never ingest (and bill) until an
+    operator explicitly turns it on from the Admin Console's Infra tab.
+    ``gen_ai_content_recording`` additionally captures prompt/response text on
+    GenAI spans — default False for privacy/cost."""
+    try:
+        doc = _traces().read_item(item=_INFRA_CONFIG_ID, partition_key=SYSTEM_ORG)
+        return doc
+    except exceptions.CosmosResourceNotFoundError:
+        pass
+    except Exception as exc:  # pragma: no cover
+        log.debug("get_infra_config failed: %s", exc)
+    return {
+        "id": _INFRA_CONFIG_ID,
+        "org_id": SYSTEM_ORG,
+        "kind": "config",
+        "app_insights_enabled": False,
+        "gen_ai_content_recording": False,
+    }
+
+
+def set_infra_config(
+    app_insights_enabled: bool, gen_ai_content_recording: bool = False
+) -> Dict[str, Any]:
+    doc = {
+        "id": _INFRA_CONFIG_ID,
+        "org_id": SYSTEM_ORG,
+        "kind": "config",
+        "app_insights_enabled": bool(app_insights_enabled),
+        "gen_ai_content_recording": bool(gen_ai_content_recording),
         "ttl": -1,  # never expire
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }

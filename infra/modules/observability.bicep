@@ -32,3 +32,4 @@ output logAnalyticsCustomerId  string = law.properties.customerId
 #disable-next-line outputs-should-not-contain-secrets
 output logAnalyticsSharedKey   string = law.listKeys().primarySharedKey
 output appInsightsConnection   string = ai.properties.ConnectionString
+output appInsightsId           string = ai.id

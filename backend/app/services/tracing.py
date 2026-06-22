@@ -250,6 +250,8 @@ def span(name: str, level: str = "INFO", **attributes: Any):
     except Exception:  # pragma: no cover - never break the caller
         yield None
         return
+    # Mirror to App Insights (best-effort, gated by the infra toggle).
+    otel_cm, otel_span = _otel_start_span(name, attributes)
     try:
         yield sp
     except BaseException as exc:
@@ -258,6 +260,8 @@ def span(name: str, level: str = "INFO", **attributes: Any):
                 sp.status = "error"
                 sp.error = {"type": type(exc).__name__, "message": str(exc)[:2000]}
                 tr.max_level = LEVELS["ERROR"]
+            if otel_span is not None:
+                _otel_mark_error(otel_span, exc)
         except Exception:
             pass
         raise
@@ -265,6 +269,11 @@ def span(name: str, level: str = "INFO", **attributes: Any):
         try:
             if sp is not None:
                 tr.close_span(sp)
+        except Exception:
+            pass
+        try:
+            if otel_cm is not None:
+                otel_cm.__exit__(None, None, None)
         except Exception:
             pass
 
@@ -278,6 +287,8 @@ def event(message: str, level: str = "INFO", **attributes: Any) -> None:
         tr.add_event(message, level, attributes)
     except Exception:
         pass
+    # Mirror to App Insights (best-effort, gated by the infra toggle).
+    _otel_add_event(message, attributes)
 
 
 def set_attr(**attributes: Any) -> None:
@@ -323,6 +334,153 @@ def get_capture_level() -> str:
 
 def invalidate_config_cache() -> None:
     _config_cache["exp"] = 0.0
+
+
+# --------------------------------------------------------------------------- #
+# Application Insights bridge (mirror request spans to OpenTelemetry)          #
+# --------------------------------------------------------------------------- #
+# Whether to mirror in-app spans/events to App Insights is an admin toggle
+# (Cosmos ``infra-config``), cached for a few seconds. Default off so nothing is
+# ingested (or billed) until an operator enables it. When OFF — or when the
+# Azure Monitor distro was never configured (no connection string) — every
+# bridge helper is a cheap no-op.
+_infra_cache: Dict[str, Any] = {"cfg": {}, "exp": 0.0}
+_INFRA_TTL = 30.0
+# Max characters of prompt/response text recorded on a GenAI span when content
+# recording is enabled (keeps a single trace from ballooning).
+_CONTENT_CAP = 8000
+
+
+def _infra_config() -> Dict[str, Any]:
+    now = time.time()
+    if _infra_cache["exp"] > now:
+        return _infra_cache["cfg"]
+    cfg: Dict[str, Any] = {}
+    try:
+        from . import cosmos  # local import to avoid cycle
+
+        cfg = cosmos.get_infra_config()
+    except Exception:
+        pass
+    _infra_cache["cfg"] = cfg
+    _infra_cache["exp"] = now + _INFRA_TTL
+    return cfg
+
+
+def app_insights_enabled() -> bool:
+    return bool(_infra_config().get("app_insights_enabled", False))
+
+
+def gen_ai_content_recording_enabled() -> bool:
+    return bool(_infra_config().get("gen_ai_content_recording", False))
+
+
+def invalidate_infra_cache() -> None:
+    _infra_cache["exp"] = 0.0
+
+
+def _otel_attrs(attributes: Dict[str, Any]) -> Dict[str, Any]:
+    """OTEL attribute values must be non-None primitives/strings."""
+    return {k: v for k, v in _safe(attributes or {}).items() if v is not None}
+
+
+def _otel_start_span(name: str, attributes: Dict[str, Any]):
+    """Open an OTEL span as the current span (nesting under the auto-instrumented
+    FastAPI request span). Returns ``(context_manager, span)`` or ``(None, None)``
+    when the bridge is disabled/unavailable. Best-effort."""
+    if not app_insights_enabled():
+        return None, None
+    try:
+        from opentelemetry import trace as _ot
+
+        cm = _ot.get_tracer("agentloom.tracing").start_as_current_span(name)
+        sp = cm.__enter__()
+        for k, v in _otel_attrs(attributes).items():
+            sp.set_attribute(k, v)
+        return cm, sp
+    except Exception:  # pragma: no cover - telemetry must never break the caller
+        return None, None
+
+
+def _otel_mark_error(otel_span: Any, exc: BaseException) -> None:
+    try:
+        from opentelemetry.trace import Status, StatusCode
+
+        otel_span.record_exception(exc)
+        otel_span.set_status(Status(StatusCode.ERROR, str(exc)[:2000]))
+    except Exception:  # pragma: no cover
+        pass
+
+
+def _otel_add_event(message: str, attributes: Dict[str, Any]) -> None:
+    if not app_insights_enabled():
+        return
+    try:
+        from opentelemetry import trace as _ot
+
+        sp = _ot.get_current_span()
+        if sp is not None:
+            sp.add_event(str(message)[:2000], attributes=_otel_attrs(attributes))
+    except Exception:  # pragma: no cover
+        pass
+
+
+def annotate_genai(
+    cosmos_span: Any,
+    *,
+    model: Optional[str],
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
+    operation: str = "chat",
+    prompt: Optional[str] = None,
+    completion: Optional[str] = None,
+    finish_reason: Optional[str] = None,
+) -> None:
+    """Attach GenAI semantic-convention attributes (``gen_ai.*``) to the current
+    span — both the in-app Cosmos span (so the Tracing page shows them) and the
+    current OpenTelemetry span (so App Insights / Foundry do too).
+
+    Prompt/response **text** is only recorded when the ``gen_ai_content_recording``
+    infra toggle is on; otherwise just metadata (model, tokens, finish reason).
+    Best-effort: never raises.
+    """
+    meta: Dict[str, Any] = {
+        "gen_ai.system": "azure.ai.foundry",
+        "gen_ai.operation.name": operation,
+        "gen_ai.request.model": model,
+        "gen_ai.usage.input_tokens": input_tokens,
+        "gen_ai.usage.output_tokens": output_tokens,
+        "gen_ai.usage.total_tokens": total_tokens,
+        # Friendly duplicates for the in-app Tracing page.
+        "model": model,
+        "total_tokens": total_tokens,
+    }
+    if finish_reason:
+        meta["gen_ai.response.finish_reason"] = finish_reason
+    if gen_ai_content_recording_enabled():
+        if prompt is not None:
+            meta["gen_ai.prompt"] = str(prompt)[:_CONTENT_CAP]
+        if completion is not None:
+            meta["gen_ai.completion"] = str(completion)[:_CONTENT_CAP]
+    # In-app Cosmos span (full values, no 500-char clamp).
+    try:
+        if cosmos_span is not None:
+            cosmos_span.attributes.update({k: v for k, v in meta.items() if v is not None})
+    except Exception:
+        pass
+    # Current OTEL span → App Insights (only when the bridge is enabled).
+    if app_insights_enabled():
+        try:
+            from opentelemetry import trace as _ot
+
+            sp = _ot.get_current_span()
+            if sp is not None:
+                for k, v in meta.items():
+                    if v is not None:
+                        sp.set_attribute(k, v)
+        except Exception:  # pragma: no cover
+            pass
 
 
 # Paths that are never traced (health checks, docs, and the tracing API itself

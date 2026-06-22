@@ -91,6 +91,7 @@ const INFRA_LABELS: Record<string, string> = {
   log_analytics: "Log Analytics",
   storage: "Storage",
   key_vault: "Key Vault",
+  app_insights: "App Insights",
   ai_foundry_base: "AI Foundry (base)",
 };
 

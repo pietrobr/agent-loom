@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.28.1.47646",
-      "templateHash": "11470568396385617772"
+      "templateHash": "16469093171396348405"
     }
   },
   "parameters": {
@@ -255,7 +255,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "16481136884193070589"
+              "templateHash": "15201195033191593332"
             }
           },
           "parameters": {
@@ -323,6 +323,10 @@
             "appInsightsConnection": {
               "type": "string",
               "value": "[reference(resourceId('Microsoft.Insights/components', parameters('appInsightsName')), '2020-02-02').ConnectionString]"
+            },
+            "appInsightsId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Insights/components', parameters('appInsightsName'))]"
             }
           }
         }
@@ -552,7 +556,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "13263216470431981817"
+              "templateHash": "18249178978254289226"
             }
           },
           "parameters": {
@@ -607,9 +611,9 @@
                 "enableSoftDelete": true,
                 "softDeleteRetentionInDays": 7,
                 "enablePurgeProtection": true,
-                "publicNetworkAccess": "Enabled",
+                "publicNetworkAccess": "Disabled",
                 "networkAcls": {
-                  "defaultAction": "Allow",
+                  "defaultAction": "Deny",
                   "bypass": "AzureServices"
                 }
               }
@@ -1336,6 +1340,12 @@
           },
           "searchPrincipalId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'search'), '2022-09-01').outputs.principalId.value]"
+          },
+          "appInsightsId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'observability'), '2022-09-01').outputs.appInsightsId.value]"
+          },
+          "appInsightsConnectionString": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'observability'), '2022-09-01').outputs.appInsightsConnection.value]"
           }
         },
         "template": {
@@ -1345,7 +1355,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "13271153227890337631"
+              "templateHash": "6737975866021653570"
             }
           },
           "parameters": {
@@ -1384,6 +1394,14 @@
             "searchPrincipalId": {
               "type": "string",
               "defaultValue": ""
+            },
+            "appInsightsId": {
+              "type": "string",
+              "defaultValue": ""
+            },
+            "appInsightsConnectionString": {
+              "type": "securestring",
+              "defaultValue": ""
             }
           },
           "variables": {
@@ -1421,6 +1439,28 @@
                 "type": "SystemAssigned"
               },
               "properties": {},
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(parameters('appInsightsId')))]",
+              "type": "Microsoft.CognitiveServices/accounts/connections",
+              "apiVersion": "2025-04-01-preview",
+              "name": "[format('{0}/{1}', parameters('accountName'), 'appinsights')]",
+              "properties": {
+                "category": "AppInsights",
+                "target": "[parameters('appInsightsId')]",
+                "authType": "ApiKey",
+                "isSharedToAll": true,
+                "credentials": {
+                  "key": "[parameters('appInsightsConnectionString')]"
+                },
+                "metadata": {
+                  "ApiType": "Azure",
+                  "ResourceId": "[parameters('appInsightsId')]"
+                }
+              },
               "dependsOn": [
                 "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
               ]
@@ -1552,6 +1592,7 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Resources/deployments', 'observability')]",
         "[resourceId('Microsoft.Resources/deployments', 'search')]"
       ]
     },
@@ -2153,6 +2194,10 @@
                 "value": "[reference(resourceId('Microsoft.Resources/deployments', 'foundry'), '2022-09-01').outputs.tenantId.value]"
               },
               {
+                "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'observability'), '2022-09-01').outputs.appInsightsConnection.value]"
+              },
+              {
                 "name": "AZURE_CLIENT_ID",
                 "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity), '2023-01-31').clientId]"
               },
@@ -2338,6 +2383,7 @@
         "[resourceId('Microsoft.Resources/deployments', 'foundry')]",
         "[resourceId('Microsoft.Resources/deployments', 'keyvault')]",
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('names').identity)]",
+        "[resourceId('Microsoft.Resources/deployments', 'observability')]",
         "[resourceId('Microsoft.Resources/deployments', 'search')]",
         "[resourceId('Microsoft.Resources/deployments', 'storage')]"
       ]

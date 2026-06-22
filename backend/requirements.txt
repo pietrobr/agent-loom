@@ -17,3 +17,6 @@ anyio==4.13.0
 msal==1.31.1
 pypdf==5.1.0
 python-docx==1.1.2
+# Observability: Azure Monitor OpenTelemetry distro. Bundles and auto-enables
+# FastAPI instrumentation, so no separate instrumentation pin is needed.
+azure-monitor-opentelemetry==1.6.4

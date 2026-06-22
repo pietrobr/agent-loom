@@ -13,6 +13,13 @@ param deployerPrincipalId string
 // Search can call the Foundry LLM for agentic retrieval query planning.
 param searchPrincipalId string = ''
 
+// Application Insights wiring — lets the Foundry project surface GenAI traces,
+// monitoring and (online) evaluation in the portal. Empty values skip the
+// connection so the module stays deployable without observability.
+param appInsightsId string = ''
+@secure()
+param appInsightsConnectionString string = ''
+
 resource account 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' = {
   name: accountName
   location: location
@@ -35,6 +42,27 @@ resource project 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-previ
   tags: tags
   identity: { type: 'SystemAssigned' }
   properties: {}
+}
+
+// Application Insights connection on the account — wires App Insights to the
+// Foundry project so GenAI traces and monitoring appear in the portal, and
+// enables online evaluation. Created only when an App Insights id is supplied.
+resource appInsightsConnection 'Microsoft.CognitiveServices/accounts/connections@2025-04-01-preview' = if (!empty(appInsightsId)) {
+  parent: account
+  name: 'appinsights'
+  properties: {
+    category: 'AppInsights'
+    target: appInsightsId
+    authType: 'ApiKey'
+    isSharedToAll: true
+    credentials: {
+      key: appInsightsConnectionString
+    }
+    metadata: {
+      ApiType: 'Azure'
+      ResourceId: appInsightsId
+    }
+  }
 }
 
 resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-04-01-preview' = {

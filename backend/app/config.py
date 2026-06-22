@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     # Key Vault
     keyvault_uri: str = ""
 
+    # Observability — Application Insights connection string (injected by infra).
+    # Empty disables OpenTelemetry export (local dev / when App Insights is off).
+    applicationinsights_connection_string: str = ""
+
     # Foundry
     foundry_project_endpoint: str = ""
     foundry_model_deployment: str = "gpt-4o-mini"

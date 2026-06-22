@@ -21,9 +21,12 @@ resource kv 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
     enablePurgeProtection: true
-    publicNetworkAccess: 'Enabled' // tighten with private endpoints in prod
+    // No public network access: the vault is reached only via its private
+    // endpoint (created in main.bicep) from inside the VNet. Deploy-time secret
+    // seeding below is a control-plane (ARM) write, so it still succeeds.
+    publicNetworkAccess: 'Disabled'
     networkAcls: {
-      defaultAction: 'Allow'
+      defaultAction: 'Deny'
       bypass: 'AzureServices'
     }
   }

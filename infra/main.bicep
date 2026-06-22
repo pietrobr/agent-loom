@@ -234,6 +234,8 @@ module foundry 'modules/foundry.bicep' = {
     backendPrincipalId: managedIdentity.properties.principalId
     deployerPrincipalId: principalId
     searchPrincipalId: search.outputs.principalId
+    appInsightsId: observability.outputs.appInsightsId
+    appInsightsConnectionString: observability.outputs.appInsightsConnection
   }
 }
 
@@ -322,6 +324,7 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'FOUNDRY_CHAT_MODEL', value: foundry.outputs.chatModelName }
       { name: 'FOUNDRY_PORTAL_URL', value: foundry.outputs.portalUrl }
       { name: 'FOUNDRY_TENANT_ID', value: foundry.outputs.tenantId }
+      { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: observability.outputs.appInsightsConnection }
       { name: 'AZURE_CLIENT_ID',  value: managedIdentity.properties.clientId }
       { name: 'ALLOWED_ORIGINS',  value: '*' }
       { name: 'ALLOW_DEV_TOKENS', value: isProduction ? 'false' : 'true' }

@@ -57,6 +57,7 @@ _DEFAULTS: Dict[str, Any] = {
         "log_analytics": 12.00,
         "storage": 3.00,
         "key_vault": 1.00,
+        "app_insights": 8.00,
         "ai_foundry_base": 0.00,
     },
 }
