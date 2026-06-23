@@ -1,0 +1,10 @@
+# Dependencies for the standalone groundedness evaluation tooling.
+# Install into a venv:  python -m pip install -r test-eval/requirements.txt
+azure-ai-evaluation>=1.10.0
+azure-ai-projects==2.2.0
+azure-identity>=1.18.0
+azure-cosmos>=4.7.0
+openai>=2.0.0
+# Needed because the scripts reuse the backend's config/service layer.
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
