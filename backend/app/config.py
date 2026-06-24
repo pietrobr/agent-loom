@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # Azure
     azure_resource_prefix: str = "agentloom"
     azure_client_id: str | None = None
+    # Subscription + resource group of this deployment (injected by infra). Used
+    # to list Foundry account model deployments via the ARM control plane.
+    azure_subscription_id: str = ""
+    azure_resource_group: str = ""
+    # Foundry (Cognitive Services) account name; derived from the project
+    # endpoint host when left empty.
+    foundry_account_name: str = ""
 
     # Cosmos
     cosmos_endpoint: str = ""

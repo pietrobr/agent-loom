@@ -118,6 +118,22 @@ resource deployerFoundryRole 'Microsoft.Authorization/roleAssignments@2022-04-01
   }
 }
 
+// Reader (control plane) — lets the backend managed identity enumerate the
+// account's model deployments via ARM, which (unlike the project data-plane
+// listing) immediately reflects deployments created via the CLI/portal
+// (e.g. fine-tuned models). Read-only, least privilege for listing.
+var readerRoleId = 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
+
+resource backendAccountReaderRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(account.id, backendPrincipalId, 'aifoundry-reader')
+  scope: account
+  properties: {
+    principalId: backendPrincipalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', readerRoleId)
+  }
+}
+
 // Cognitive Services User — lets the Azure AI Search managed identity invoke the
 // Foundry chat model for agentic retrieval query planning + answer synthesis.
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'

@@ -318,6 +318,9 @@ module backendApp 'modules/containerapp.bicep' = {
       { name: 'KEYVAULT_URI',     value: keyvault.outputs.uri }
       { name: 'FOUNDRY_PROJECT_ENDPOINT', value: foundry.outputs.projectEndpoint }
       { name: 'FOUNDRY_MODEL_DEPLOYMENT', value: foundryModelName }
+      { name: 'FOUNDRY_ACCOUNT_NAME', value: foundry.outputs.accountName }
+      { name: 'AZURE_SUBSCRIPTION_ID', value: subscription().subscriptionId }
+      { name: 'AZURE_RESOURCE_GROUP', value: resourceGroup().name }
       { name: 'EMBEDDING_DEPLOYMENT', value: foundry.outputs.embeddingDeployment }
       { name: 'FOUNDRY_ACCOUNT_ENDPOINT', value: foundry.outputs.accountEndpoint }
       { name: 'FOUNDRY_CHAT_DEPLOYMENT', value: foundry.outputs.chatDeployment }

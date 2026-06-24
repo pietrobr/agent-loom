@@ -14,8 +14,10 @@ isolation is enforced by the ``org_id`` filter upstream.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import re
+import urllib.request
 from functools import lru_cache
 from typing import Iterator, List, Optional
 from urllib.parse import quote
@@ -74,12 +76,53 @@ def agent_name_for_instance(template_id: str, org_id: str) -> str:
     return _SAFE_NAME.sub("-", raw).strip("-")[:60]
 
 
-def list_model_deployments() -> List[str]:
-    """Return the names of the model deployments available in the Foundry project.
+def _account_arm_id() -> Optional[str]:
+    """ARM resource id of the Foundry (Cognitive Services) account, or None when
+    the subscription/resource-group are not configured."""
+    s = get_settings()
+    sub = s.azure_subscription_id
+    rg = s.azure_resource_group
+    if not (sub and rg):
+        return None
+    account = s.foundry_account_name
+    if not account and s.foundry_project_endpoint:
+        # Derive the account name from the endpoint host's first label.
+        account = s.foundry_project_endpoint.split("//", 1)[-1].split(".", 1)[0]
+    if not account:
+        return None
+    return (
+        f"/subscriptions/{sub}/resourceGroups/{rg}/providers"
+        f"/Microsoft.CognitiveServices/accounts/{account}"
+    )
 
-    These are the deployment names usable as the agent ``model`` parameter (the
-    "Name" column in the Foundry portal's Deployed models table).
+
+def _list_account_deployments() -> List[str]:
+    """List deployment names via the ARM **control plane** — the source of truth.
+
+    The project data-plane deployments API is eventually consistent and omits
+    deployments created outside the project (e.g. fine-tuned models deployed via
+    the CLI/portal), so they never show up there. The account-level control-plane
+    listing always reflects every deployment. Requires the backend identity to
+    have read access (Reader) on the account; on failure we return [] and the
+    caller falls back to the project list.
     """
+    arm_id = _account_arm_id()
+    if not arm_id:
+        return []
+    try:
+        token = get_credential().get_token("https://management.azure.com/.default").token
+        url = f"https://management.azure.com{arm_id}/deployments?api-version=2023-05-01"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+        with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 (trusted ARM URL)
+            data = json.load(resp)
+    except Exception as exc:  # pragma: no cover - network/permission issues
+        log.warning("ARM deployment listing failed: %s", exc)
+        return []
+    return [n for item in data.get("value", []) if (n := item.get("name"))]
+
+
+def _list_project_deployments() -> List[str]:
+    """List deployment names via the Foundry **project** data plane."""
     names: List[str] = []
     try:
         for dep in project_client().deployments.list(deployment_type="ModelDeployment"):
@@ -87,7 +130,21 @@ def list_model_deployments() -> List[str]:
             if name:
                 names.append(name)
     except Exception as exc:  # pragma: no cover - network/permission issues
-        log.warning("list_model_deployments failed: %s", exc)
+        log.warning("project deployment listing failed: %s", exc)
+    return names
+
+
+def list_model_deployments() -> List[str]:
+    """Return the names of the model deployments available on the Foundry account.
+
+    These are the deployment names usable as the agent ``model`` parameter (the
+    "Name" column in the Foundry portal's Deployed models table).
+
+    Prefers the ARM control-plane listing (complete and immediately consistent),
+    then merges in any project data-plane entries so the dropdown is never empty
+    even if the backend identity lacks ARM read access.
+    """
+    names = _list_account_deployments() + _list_project_deployments()
     # De-duplicate while preserving order.
     seen: set[str] = set()
     return [n for n in names if not (n in seen or seen.add(n))]

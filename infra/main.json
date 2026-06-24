@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.28.1.47646",
-      "templateHash": "16469093171396348405"
+      "templateHash": "1032893650696426827"
     }
   },
   "parameters": {
@@ -1355,7 +1355,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.28.1.47646",
-              "templateHash": "6737975866021653570"
+              "templateHash": "13346598449912153439"
             }
           },
           "parameters": {
@@ -1406,6 +1406,7 @@
           },
           "variables": {
             "aiUserRoleId": "53ca6127-db72-4b80-b1b0-d745d6d5456d",
+            "readerRoleId": "acdd72a7-3385-48ef-bd42-f606fba81ae7",
             "cognitiveServicesUserRoleId": "a97b65f3-24c7-4388-baec-2e87135dc908"
           },
           "resources": [
@@ -1529,6 +1530,20 @@
                 "principalId": "[parameters('deployerPrincipalId')]",
                 "principalType": "User",
                 "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('aiUserRoleId'))]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', parameters('accountName'))]",
+              "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName')), parameters('backendPrincipalId'), 'aifoundry-reader')]",
+              "properties": {
+                "principalId": "[parameters('backendPrincipalId')]",
+                "principalType": "ServicePrincipal",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('readerRoleId'))]"
               },
               "dependsOn": [
                 "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
@@ -2168,6 +2183,18 @@
               {
                 "name": "FOUNDRY_MODEL_DEPLOYMENT",
                 "value": "[parameters('foundryModelName')]"
+              },
+              {
+                "name": "FOUNDRY_ACCOUNT_NAME",
+                "value": "[reference(resourceId('Microsoft.Resources/deployments', 'foundry'), '2022-09-01').outputs.accountName.value]"
+              },
+              {
+                "name": "AZURE_SUBSCRIPTION_ID",
+                "value": "[subscription().subscriptionId]"
+              },
+              {
+                "name": "AZURE_RESOURCE_GROUP",
+                "value": "[resourceGroup().name]"
               },
               {
                 "name": "EMBEDDING_DEPLOYMENT",
