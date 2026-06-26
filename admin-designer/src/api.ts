@@ -316,7 +316,7 @@ export const api = {
   createCiamUser: (body: {
     given_name?: string;
     surname?: string;
-    upn: string;
+    upn?: string;
     company?: string;
     org_id?: string;
   }) =>
@@ -324,6 +324,7 @@ export const api = {
       "/v1/admin/ciam/users",
       { method: "POST", body: JSON.stringify(body) }
     ),
+  getCiamDomain: () => req<{ domain: string }>("/v1/admin/ciam/domain"),
   listGroupMembers: (orgId: string) =>
     req<DirectoryUser[]>(`/v1/admin/customers/${orgId}/group/members`),
   addGroupMember: (orgId: string, userId: string) =>

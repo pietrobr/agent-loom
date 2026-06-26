@@ -5,6 +5,8 @@ Every endpoint requires the ``admin`` role.
 from __future__ import annotations
 
 import logging
+import re
+import unicodedata
 import uuid
 from typing import Any, Dict, List
 
@@ -201,6 +203,19 @@ def _customer_group_id(org_id: str) -> str:
     return gid
 
 
+def _slug(value: str) -> str:
+    """ASCII, lowercase, alphanumeric-only token for a UPN local part."""
+    norm = unicodedata.normalize("NFKD", value or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "", norm.lower())
+
+
+@router.get("/ciam/domain")
+def ciam_user_domain(_: Principal = Depends(require_admin)) -> Dict[str, str]:
+    """The onmicrosoft.com domain new customer users are created under (UPN suffix)."""
+    _require_group_mgmt()
+    return {"domain": get_settings().ciam_domain}
+
+
 @router.get("/ciam/users")
 def list_directory_users(
     search: str | None = None,
@@ -219,14 +234,22 @@ def create_directory_user(
     payload: Dict[str, Any], _: Principal = Depends(require_admin)
 ) -> Dict[str, Any]:
     """Create a user in the customers (CIAM) tenant and, optionally, add them to a
-    customer's security group. Returns the new user + a one-time temp password."""
+    customer's security group. The UPN is built server-side as
+    ``<first>.<last>@<ciam-domain>``. Returns the new user + a one-time temp
+    password."""
     _require_group_mgmt()
-    upn = (payload.get("upn") or "").strip()
-    if not upn:
-        raise HTTPException(400, "upn is required")
+    given = (payload.get("given_name") or "").strip()
+    surname = (payload.get("surname") or "").strip()
+    domain = get_settings().ciam_domain
+    if not domain:
+        raise HTTPException(400, "CIAM domain is not configured (CIAM_SUBDOMAIN missing)")
+    local = ".".join(p for p in (_slug(given), _slug(surname)) if p)
+    if not local:
+        raise HTTPException(400, "first and/or last name are required to build the UPN")
+    upn = f"{local}@{domain}"
     res = ciam_groups.create_user(
-        given_name=(payload.get("given_name") or "").strip(),
-        surname=(payload.get("surname") or "").strip(),
+        given_name=given,
+        surname=surname,
         upn=upn,
         company=(payload.get("company") or "").strip() or None,
     )

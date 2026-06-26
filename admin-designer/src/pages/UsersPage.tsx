@@ -28,6 +28,7 @@ import {
   Search20Regular,
   PersonAccounts24Regular,
   PersonAdd20Regular,
+  Copy20Regular,
 } from "@fluentui/react-icons";
 import { api, Tenant, DirectoryUser } from "../api";
 
@@ -36,6 +37,14 @@ const useStyles = makeStyles({
   head: { display: "flex", flexDirection: "column", gap: "4px" },
   titleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
   formGrid: { display: "flex", flexDirection: "column", gap: "10px", minWidth: "360px" },
+  recapRow: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" },
+  recapValue: {
+    fontFamily: "monospace",
+    background: tokens.colorNeutralBackground3,
+    padding: "2px 6px",
+    borderRadius: "4px",
+    userSelect: "all",
+  },
   pickRow: { display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" },
   cols: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
   card: { padding: "12px", display: "flex", flexDirection: "column", gap: "10px" },
@@ -77,6 +86,18 @@ function subtitle(u: DirectoryUser): string {
   return u.upn || u.mail || "";
 }
 
+// UPN local part: ASCII, lowercase, alphanumeric only.
+function slug(s: string): string {
+  return (s || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+function copyText(text: string): void {
+  navigator.clipboard?.writeText(text).catch(() => {});
+}
+
 export function UsersPage() {
   const styles = useStyles();
   const [customers, setCustomers] = useState<Tenant[]>([]);
@@ -97,13 +118,15 @@ export function UsersPage() {
   const [newOpen, setNewOpen] = useState(false);
   const [nGiven, setNGiven] = useState("");
   const [nSurname, setNSurname] = useState("");
-  const [nUpn, setNUpn] = useState("");
   const [nCompany, setNCompany] = useState("");
   const [nGroup, setNGroup] = useState("");
+  const [domain, setDomain] = useState("");
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<{ upn: string; password: string; added_to?: string | null } | null>(
     null
   );
+  const upnLocal = [slug(nGiven), slug(nSurname)].filter(Boolean).join(".");
+  const upnPreview = upnLocal && domain ? `${upnLocal}@${domain}` : "";
 
   const memberIds = new Set(members.map((m) => m.id));
   const selected = customers.find((c) => c.org_id === orgId);
@@ -118,6 +141,7 @@ export function UsersPage() {
         setErr(e.message);
       }
     })();
+    api.getCiamDomain().then((d) => setDomain(d.domain)).catch(() => {});
     searchUsers(true, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -191,15 +215,14 @@ export function UsersPage() {
   function openNewUser() {
     setNGiven("");
     setNSurname("");
-    setNUpn("");
     setNCompany("");
     setNGroup(orgId || "");
     setNewOpen(true);
   }
 
   async function onCreateUser() {
-    if (!nUpn.trim()) {
-      setErr("UPN is required.");
+    if (!upnPreview) {
+      setErr("Enter a first and/or last name (the UPN is built from them).");
       return;
     }
     setCreating(true);
@@ -208,11 +231,10 @@ export function UsersPage() {
       const res = await api.createCiamUser({
         given_name: nGiven.trim() || undefined,
         surname: nSurname.trim() || undefined,
-        upn: nUpn.trim(),
         company: nCompany.trim() || undefined,
         org_id: nGroup || undefined,
       });
-      setCreated({ upn: res.user.upn || nUpn.trim(), password: res.temp_password, added_to: res.added_to });
+      setCreated({ upn: res.user.upn || upnPreview, password: res.temp_password, added_to: res.added_to });
       setNewOpen(false);
       // Reflect the new user in the lists.
       searchUsers(true);
@@ -264,15 +286,39 @@ export function UsersPage() {
 
       {created && (
         <MessageBar intent="success">
-          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
             <Text size={300} weight="semibold">
-              User {created.upn} created
-              {created.added_to ? ` and added to ${created.added_to}` : ""}.
+              User created{created.added_to ? ` and added to ${created.added_to}` : ""}. Share these
+              credentials securely — the password is shown once and must be changed at first sign-in.
             </Text>
-            <Text size={200}>
-              Temporary password (shown once — share it securely; the user must change it at first
-              sign-in): <code>{created.password}</code>
-            </Text>
+            <div className={styles.recapRow}>
+              <Text size={200} style={{ minWidth: 76 }}>
+                UPN
+              </Text>
+              <code className={styles.recapValue}>{created.upn}</code>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Copy20Regular />}
+                onClick={() => copyText(created.upn)}
+              >
+                Copy
+              </Button>
+            </div>
+            <div className={styles.recapRow}>
+              <Text size={200} style={{ minWidth: 76 }}>
+                Password
+              </Text>
+              <code className={styles.recapValue}>{created.password}</code>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Copy20Regular />}
+                onClick={() => copyText(created.password)}
+              >
+                Copy
+              </Button>
+            </div>
             <div>
               <Button size="small" appearance="subtle" onClick={() => setCreated(null)}>
                 Dismiss
@@ -432,12 +478,12 @@ export function UsersPage() {
                   <Input className={styles.grow} value={nSurname} onChange={(_, d) => setNSurname(d.value)} />
                 </div>
                 <div>
-                  <Label required>User principal name (UPN)</Label>
+                  <Label>User principal name (UPN) — auto-generated</Label>
                   <Input
                     className={styles.grow}
-                    placeholder="user@yourtenant.onmicrosoft.com"
-                    value={nUpn}
-                    onChange={(_, d) => setNUpn(d.value)}
+                    readOnly
+                    disabled
+                    value={upnPreview || "(enter first / last name)"}
                   />
                 </div>
                 <div>
@@ -470,7 +516,7 @@ export function UsersPage() {
               </DialogTrigger>
               <Button
                 appearance="primary"
-                disabled={creating || !nUpn.trim()}
+                disabled={creating || !upnPreview}
                 onClick={onCreateUser}
               >
                 {creating ? "Creating…" : "Create"}

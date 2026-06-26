@@ -148,6 +148,12 @@ class Settings(BaseSettings):
         )
 
     @property
+    def ciam_domain(self) -> str:
+        """The onmicrosoft.com domain used for new customer users (UPN suffix),
+        derived from the CIAM tenant's initial domain label (subdomain)."""
+        return f"{self.ciam_subdomain}.onmicrosoft.com" if self.ciam_subdomain else ""
+
+    @property
     def workforce_oidc_issuer(self) -> str:
         if self.workforce_issuer:
             return self.workforce_issuer
