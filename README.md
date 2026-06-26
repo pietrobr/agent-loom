@@ -60,6 +60,15 @@ own no infrastructure.
   the spans also surface in the **Foundry portal**. A second toggle enables
   **prompt/response content recording** (off by default for privacy/cost). Both
   are gated server-side, so nothing is ingested — or billed — until you opt in.
+- **Customer user management** (production): the admin **Users** tab lists the
+  users in the customers' **Entra External ID (CIAM)** directory — searchable and
+  paged for large directories — and lets the provider add or remove them from a
+  customer's access group (`cust-<org_id>`) directly from the console, instead of
+  the Entra portal or Graph. The tab is **production-only** (it is greyed out in
+  the demo/dev experience, which uses simulated tokens).
+- **Signed-in user shown in the chat**: in production the customer web app
+  displays the signed-in user's name (from their Entra External ID token) next to
+  the sign-out button.
 
 ---
 
@@ -87,7 +96,7 @@ flowchart TB
     subgraph Clients["End users"]
       direction LR
       CW["customer-webapp<br/>brandable chat (SPA)"]
-      AD["SaaS Console (admin-designer)<br/>catalog · onboarding<br/>metering · costs · tracing · infra"]
+      AD["SaaS Console (admin-designer)<br/>catalog · onboarding · users<br/>metering · costs · tracing · infra"]
     end
 
     subgraph Azure["Provider Azure subscription — single deployment"]
@@ -575,10 +584,17 @@ belong to. AgentLoom does this with **security groups**:
 Each customer has a `cust-<org_id>` **security group** in the CIAM tenant; users
 are simply added to it. The token carries the group object ids in the `groups`
 claim, and the backend maps the group → the tenant whose `group_id` matches.
-Adding/removing a user is just group membership (portal or Graph). When you
-**create a customer in the Admin Console**, the backend creates the group
-automatically (and deletes it when the customer is removed) using a dedicated
-**provisioning app** whose secret lives in Key Vault.
+Adding/removing a user is just group membership — do it from the Admin Console's
+**Users** tab (search the CIAM directory and add/remove members per customer), or
+from the Entra portal / Graph. When you **create a customer in the Admin
+Console**, the backend creates the group automatically (and deletes it when the
+customer is removed) using a dedicated **provisioning app** whose secret lives in
+Key Vault.
+
+> The Users tab needs the provisioning app to hold the Microsoft Graph
+> application permissions **`Group.ReadWrite.All`** (membership) and
+> **`User.Read.All`** (directory listing), both granted + admin-consented by
+> [scripts/setup_identity.ps1](scripts/setup_identity.ps1).
 
 #### Step 1 — Provision the identities (one-time, both tenants)
 
