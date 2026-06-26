@@ -327,17 +327,21 @@ AgentLoom/
 │  └─ modules/*.bicep         # incl. network.bicep (VNet + NSG + DNS) + privateEndpoint.bicep
 ├─ backend/                   # FastAPI front door
 │  └─ app/
-│     ├─ main.py middleware.py security.py config.py models.py credentials.py
-│     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py
-│     └─ services/ cosmos.py search.py blob.py foundry.py embeddings.py agentic.py pricing.py
+│     ├─ main.py middleware.py security.py config.py models.py credentials.py jwks.py
+│     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py infra.py me.py tracing.py
+│     └─ services/ cosmos.py search.py blob.py foundry.py embeddings.py agentic.py pricing.py ciam_groups.py keyvault.py tracing.py
 ├─ admin-designer/            # SaaS Console — React + Vite + Fluent UI (provider admin), served by nginx
+│                             #   pages: Templates · Customers · Users · Instances · Metering · Tracing · Costs · Infra
 ├─ customer-webapp/           # React + Vite + Fluent UI (customer chat) — served by nginx
+├─ evals/                     # groundedness evals + SFT dataset/fine-tune tooling (per-agent, Foundry traces)
+├─ docs/                      # walkthrough, brand options, screenshots
 ├─ scripts/
 │  ├─ create_foundry_agents.py  # seeds the agent TEMPLATES (from sample-templates/)
 │  ├─ seed_customers.py         # 2 demo customers + instances + indexes + knowledge
 │  ├─ reindex_search.py         # re-chunk & re-embed a customer's knowledge into kb-{org}
 │  ├─ fetch_azure_prices.py     # refresh config/azure_prices*.json from the Azure price API
 │  ├─ mint_demo_token.py        # local JWT for manual testing
+│  ├─ setup_identity.ps1        # production identity (Entra workforce + CIAM app regs, groups, Graph perms)
 │  └─ setup.ps1 / setup.sh      # azd post-provision orchestration
 ├─ sample-templates/          # agent template blueprints (JSON) — single source of truth
 ├─ sample-customers/          # demo + manual customers (README + knowledge per customer)
