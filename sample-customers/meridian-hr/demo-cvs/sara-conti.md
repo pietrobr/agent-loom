@@ -1,9 +1,5 @@
 # Demo CV — Sara Conti (Backend Engineer)
 
-> Test input for the **Meridian CV Screener** agent. This is NOT knowledge —
-> paste it into the chat and ask the agent to evaluate it against the rules.
-> Designed to exercise a knock-out rule (less than 3 years of relevant
-> experience → mandatory requirement unmet → Reject).
 
 **Sara Conti**
 Bologna, Italy · EU citizen · English: professional working proficiency

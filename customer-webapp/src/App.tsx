@@ -9,7 +9,7 @@ import {
   tokens,
   MessageBar,
 } from "@fluentui/react-components";
-import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular, DocumentText24Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
 import { Markdown } from "./Markdown";
 import {
@@ -91,6 +91,31 @@ const useStyles = makeStyles({
     padding: "10px 14px",
     borderRadius: "14px 14px 2px 14px",
     color: "#fff",
+  },
+  userText: { whiteSpace: "pre-wrap", overflowWrap: "anywhere" },
+  attachmentCard: {
+    marginTop: "8px",
+    borderRadius: "10px",
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorNeutralForeground1,
+    border: "1px solid rgba(255,255,255,0.45)",
+    overflow: "hidden",
+  },
+  attachmentHead: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 10px",
+    cursor: "pointer",
+    fontWeight: 600,
+    userSelect: "none",
+  },
+  attachmentBody: {
+    padding: "2px 12px 10px",
+    maxHeight: "320px",
+    overflowY: "auto",
+    fontSize: "13px",
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
   },
   bubbleBot: {
     alignSelf: "flex-start",
@@ -181,6 +206,44 @@ const useStyles = makeStyles({
 interface Msg {
   role: "user" | "bot";
   text: string;
+}
+
+// A user turn that embeds an uploaded document is wrapped as
+// `…intro…\n\n--- BEGIN DOCUMENT ---\n<doc>\n--- END DOCUMENT ---<note>`.
+// Render the document as a tidy, collapsible attachment card (markdown preview)
+// instead of dumping the raw text into the bubble.
+const DOC_RE = /^([\s\S]*?)\n\n--- BEGIN DOCUMENT ---\n([\s\S]*?)\n--- END DOCUMENT ---([\s\S]*)$/;
+
+function UserBubble({ text }: { text: string }): JSX.Element {
+  const styles = useStyles();
+  const m = DOC_RE.exec(text);
+  if (!m) {
+    return <span className={styles.userText}>{text}</span>;
+  }
+  const intro = m[1].trim();
+  const doc = m[2].trim();
+  const note = m[3].trim();
+  const fn = /attached document\s+"([^"]+)"/i.exec(intro);
+  const filename = fn ? fn[1] : "Attached document";
+  return (
+    <div>
+      {intro && <div className={styles.userText}>{intro}</div>}
+      <details className={styles.attachmentCard}>
+        <summary className={styles.attachmentHead}>
+          <DocumentText24Regular />
+          {filename}
+        </summary>
+        <div className={styles.attachmentBody}>
+          <Markdown text={doc} />
+        </div>
+      </details>
+      {note && (
+        <div className={styles.userText} style={{ marginTop: 6, opacity: 0.85 }}>
+          {note}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function App() {
@@ -585,7 +648,7 @@ export function App() {
         {messages.map((m, i) =>
           m.role === "user" ? (
             <div key={i} className={styles.bubbleUser} style={{ backgroundColor: color }}>
-              {m.text}
+              <UserBubble text={m.text} />
             </div>
           ) : (
             <div key={i} className={styles.row} style={{ alignSelf: "flex-start" }}>
