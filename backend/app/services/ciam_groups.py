@@ -16,6 +16,8 @@ is inert.
 from __future__ import annotations
 
 import logging
+import secrets
+import string
 import threading
 import time
 from typing import Optional
@@ -272,3 +274,63 @@ def remove_group_member(group_id: str, user_id: str) -> bool:
     except Exception as exc:  # noqa: BLE001
         log.warning("remove_group_member error: %s", exc)
     return False
+
+
+def _gen_password(length: int = 16) -> str:
+    """A random password meeting Entra complexity (upper/lower/digit/symbol)."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    while True:
+        pw = "".join(secrets.choice(alphabet) for _ in range(length))
+        if (
+            any(c.islower() for c in pw)
+            and any(c.isupper() for c in pw)
+            and any(c.isdigit() for c in pw)
+            and any(c in "!@#$%^&*" for c in pw)
+        ):
+            return pw
+
+
+def create_user(
+    given_name: str,
+    surname: str,
+    upn: str,
+    company: Optional[str] = None,
+) -> dict:
+    """Create a member user in the CIAM tenant with a generated temporary
+    password (force-change at next sign-in). Returns
+    ``{"user": <dto>, "temp_password": <pw>}`` or ``{"error": <msg>}``.
+
+    Requires the provisioning app to hold ``User.ReadWrite.All`` (Application).
+    """
+    if not get_settings().group_provisioning_enabled:
+        return {"error": "group management disabled"}
+    h = _headers()
+    if not h:
+        return {"error": "Graph unavailable"}
+    upn = (upn or "").strip()
+    if not upn or "@" not in upn:
+        return {"error": "a valid userPrincipalName (e.g. user@tenant.onmicrosoft.com) is required"}
+    pw = _gen_password()
+    display = f"{given_name} {surname}".strip() or upn.split("@")[0]
+    body: dict = {
+        "accountEnabled": True,
+        "displayName": display,
+        "userPrincipalName": upn,
+        "mailNickname": upn.split("@")[0],
+        "passwordProfile": {"password": pw, "forceChangePasswordNextSignIn": True},
+    }
+    if given_name:
+        body["givenName"] = given_name
+    if surname:
+        body["surname"] = surname
+    if company:
+        body["companyName"] = company
+    try:
+        r = httpx.post(f"{_GRAPH}/users", json=body, headers=h, timeout=20.0)
+        if r.status_code in (200, 201):
+            return {"user": _user_dto(r.json()), "temp_password": pw}
+        log.warning("create_user failed: %s %s", r.status_code, r.text)
+        return {"error": r.text[:400]}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("create_user error: %s", exc)
+        return {"error": str(exc)}

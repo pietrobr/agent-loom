@@ -214,6 +214,33 @@ def list_directory_users(
     return ciam_groups.list_users(search=search, top=limit, skip_token=skip_token)
 
 
+@router.post("/ciam/users")
+def create_directory_user(
+    payload: Dict[str, Any], _: Principal = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Create a user in the customers (CIAM) tenant and, optionally, add them to a
+    customer's security group. Returns the new user + a one-time temp password."""
+    _require_group_mgmt()
+    upn = (payload.get("upn") or "").strip()
+    if not upn:
+        raise HTTPException(400, "upn is required")
+    res = ciam_groups.create_user(
+        given_name=(payload.get("given_name") or "").strip(),
+        surname=(payload.get("surname") or "").strip(),
+        upn=upn,
+        company=(payload.get("company") or "").strip() or None,
+    )
+    if res.get("error"):
+        raise HTTPException(502, f"failed to create the user: {res['error']}")
+    user = res["user"]
+    org_id = (payload.get("org_id") or "").strip()
+    added_to = None
+    if org_id:
+        if ciam_groups.add_group_member(_customer_group_id(org_id), user["id"]):
+            added_to = org_id
+    return {"user": user, "temp_password": res["temp_password"], "added_to": added_to}
+
+
 @router.get("/customers/{org_id}/group/members")
 def list_customer_group_members(
     org_id: str, _: Principal = Depends(require_admin)

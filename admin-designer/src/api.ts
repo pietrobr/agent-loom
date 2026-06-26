@@ -313,6 +313,17 @@ export const api = {
     const qs = p.toString();
     return req<UserPage>(`/v1/admin/ciam/users${qs ? `?${qs}` : ""}`);
   },
+  createCiamUser: (body: {
+    given_name?: string;
+    surname?: string;
+    upn: string;
+    company?: string;
+    org_id?: string;
+  }) =>
+    req<{ user: DirectoryUser; temp_password: string; added_to?: string | null }>(
+      "/v1/admin/ciam/users",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
   listGroupMembers: (orgId: string) =>
     req<DirectoryUser[]>(`/v1/admin/customers/${orgId}/group/members`),
   addGroupMember: (orgId: string, userId: string) =>

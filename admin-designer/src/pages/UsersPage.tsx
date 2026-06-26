@@ -12,6 +12,13 @@ import {
   Spinner,
   Badge,
   MessageBar,
+  Dialog,
+  DialogTrigger,
+  DialogSurface,
+  DialogTitle,
+  DialogBody,
+  DialogContent,
+  DialogActions,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
@@ -20,12 +27,15 @@ import {
   Dismiss20Regular,
   Search20Regular,
   PersonAccounts24Regular,
+  PersonAdd20Regular,
 } from "@fluentui/react-icons";
 import { api, Tenant, DirectoryUser } from "../api";
 
 const useStyles = makeStyles({
   wrap: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "1100px" },
   head: { display: "flex", flexDirection: "column", gap: "4px" },
+  titleRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" },
+  formGrid: { display: "flex", flexDirection: "column", gap: "10px", minWidth: "360px" },
   pickRow: { display: "flex", gap: "12px", alignItems: "flex-end", flexWrap: "wrap" },
   cols: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", alignItems: "start" },
   card: { padding: "12px", display: "flex", flexDirection: "column", gap: "10px" },
@@ -82,6 +92,18 @@ export function UsersPage() {
 
   const [busyId, setBusyId] = useState<string>("");
   const [err, setErr] = useState("");
+
+  // New-user form state.
+  const [newOpen, setNewOpen] = useState(false);
+  const [nGiven, setNGiven] = useState("");
+  const [nSurname, setNSurname] = useState("");
+  const [nUpn, setNUpn] = useState("");
+  const [nCompany, setNCompany] = useState("");
+  const [nGroup, setNGroup] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [created, setCreated] = useState<{ upn: string; password: string; added_to?: string | null } | null>(
+    null
+  );
 
   const memberIds = new Set(members.map((m) => m.id));
   const selected = customers.find((c) => c.org_id === orgId);
@@ -166,12 +188,53 @@ export function UsersPage() {
     }
   }
 
+  function openNewUser() {
+    setNGiven("");
+    setNSurname("");
+    setNUpn("");
+    setNCompany("");
+    setNGroup(orgId || "");
+    setNewOpen(true);
+  }
+
+  async function onCreateUser() {
+    if (!nUpn.trim()) {
+      setErr("UPN is required.");
+      return;
+    }
+    setCreating(true);
+    setErr("");
+    try {
+      const res = await api.createCiamUser({
+        given_name: nGiven.trim() || undefined,
+        surname: nSurname.trim() || undefined,
+        upn: nUpn.trim(),
+        company: nCompany.trim() || undefined,
+        org_id: nGroup || undefined,
+      });
+      setCreated({ upn: res.user.upn || nUpn.trim(), password: res.temp_password, added_to: res.added_to });
+      setNewOpen(false);
+      // Reflect the new user in the lists.
+      searchUsers(true);
+      if (res.added_to && res.added_to === orgId) loadMembers(orgId);
+    } catch (e: any) {
+      setErr(e.message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <div className={styles.wrap}>
       <div className={styles.head}>
-        <Text size={600} weight="semibold">
-          Users
-        </Text>
+        <div className={styles.titleRow}>
+          <Text size={600} weight="semibold">
+            Users
+          </Text>
+          <Button appearance="primary" icon={<PersonAdd20Regular />} onClick={openNewUser}>
+            New user
+          </Button>
+        </div>
         <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
           Browse users in the customers (Entra External ID) directory and add or remove them
           from a customer's access group. Membership of a customer's group is what grants a
@@ -198,6 +261,26 @@ export function UsersPage() {
       </div>
 
       {err && <MessageBar intent="error">{err}</MessageBar>}
+
+      {created && (
+        <MessageBar intent="success">
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <Text size={300} weight="semibold">
+              User {created.upn} created
+              {created.added_to ? ` and added to ${created.added_to}` : ""}.
+            </Text>
+            <Text size={200}>
+              Temporary password (shown once — share it securely; the user must change it at first
+              sign-in): <code>{created.password}</code>
+            </Text>
+            <div>
+              <Button size="small" appearance="subtle" onClick={() => setCreated(null)}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </MessageBar>
+      )}
 
       <div className={styles.cols}>
         {/* Directory users */}
@@ -333,6 +416,69 @@ export function UsersPage() {
           )}
         </Card>
       </div>
+
+      <Dialog open={newOpen} onOpenChange={(_, d) => setNewOpen(d.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>New user</DialogTitle>
+            <DialogContent>
+              <div className={styles.formGrid}>
+                <div>
+                  <Label>First name</Label>
+                  <Input className={styles.grow} value={nGiven} onChange={(_, d) => setNGiven(d.value)} />
+                </div>
+                <div>
+                  <Label>Last name</Label>
+                  <Input className={styles.grow} value={nSurname} onChange={(_, d) => setNSurname(d.value)} />
+                </div>
+                <div>
+                  <Label required>User principal name (UPN)</Label>
+                  <Input
+                    className={styles.grow}
+                    placeholder="user@yourtenant.onmicrosoft.com"
+                    value={nUpn}
+                    onChange={(_, d) => setNUpn(d.value)}
+                  />
+                </div>
+                <div>
+                  <Label>Company</Label>
+                  <Input className={styles.grow} value={nCompany} onChange={(_, d) => setNCompany(d.value)} />
+                </div>
+                <div>
+                  <Label>Add to customer group (optional)</Label>
+                  <Dropdown
+                    value={customers.find((c) => c.org_id === nGroup)?.name || ""}
+                    selectedOptions={nGroup ? [nGroup] : []}
+                    onOptionSelect={(_, d) => setNGroup(d.optionValue || "")}
+                    placeholder="No group"
+                  >
+                    <Option value="">No group</Option>
+                    {customers.map((c) => (
+                      <Option key={c.org_id} value={c.org_id}>
+                        {c.name}
+                      </Option>
+                    ))}
+                  </Dropdown>
+                </div>
+              </div>
+            </DialogContent>
+            <DialogActions>
+              <DialogTrigger disableButtonEnhancement>
+                <Button appearance="secondary" disabled={creating}>
+                  Cancel
+                </Button>
+              </DialogTrigger>
+              <Button
+                appearance="primary"
+                disabled={creating || !nUpn.trim()}
+                onClick={onCreateUser}
+              >
+                {creating ? "Creating…" : "Create"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }

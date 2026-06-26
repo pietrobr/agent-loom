@@ -226,12 +226,12 @@ Write-Host "  set groupMembershipClaims=SecurityGroup on the customer app"
 # The backend uses this app to create/delete the per-customer security group in
 # the CIAM tenant when a customer is added/removed in the Admin Console. It needs
 # the Microsoft Graph application permissions Group.ReadWrite.All (create/manage
-# per-customer groups + membership) and User.Read.All (list directory users for
-# the Admin Console "Users" tab) + admin consent, and a client secret (stored in
-# Key Vault; printed below).
+# per-customer groups + membership) and User.ReadWrite.All (list AND create
+# directory users for the Admin Console "Users" tab) + admin consent, and a
+# client secret (stored in Key Vault; printed below).
 $graphAppId = "00000003-0000-0000-c000-000000000000"          # Microsoft Graph
 $groupRwAllId = "62a82d76-70ea-41e2-9197-370581804d09"        # Group.ReadWrite.All (Application)
-$userReadAllId = "df021288-bdef-4463-88db-98f22de89214"       # User.Read.All (Application)
+$userRwAllId = "741f803b-c850-494e-b5df-cde7c675a1ca"         # User.ReadWrite.All (Application)
 
 $provApp = Invoke-Graph GET "$graph/applications?`$filter=displayName eq '$ProvisioningAppName'"
 if ($provApp -and $provApp.value.Count -gt 0) {
@@ -245,7 +245,7 @@ if ($provApp -and $provApp.value.Count -gt 0) {
       resourceAppId  = $graphAppId
       resourceAccess = @(
         @{ id = $groupRwAllId; type = "Role" },
-        @{ id = $userReadAllId; type = "Role" }
+        @{ id = $userRwAllId; type = "Role" }
       )
     })
   }
@@ -258,7 +258,7 @@ $graphSp = (Invoke-Graph GET "$graph/servicePrincipals?`$filter=appId eq '$graph
 $existingGrants = Invoke-Graph GET "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments"
 foreach ($role in @(
     @{ id = $groupRwAllId; name = "Group.ReadWrite.All" },
-    @{ id = $userReadAllId; name = "User.Read.All" }
+    @{ id = $userRwAllId; name = "User.ReadWrite.All" }
   )) {
   $hasGrant = $existingGrants.value | Where-Object { $_.appRoleId -eq $role.id -and $_.resourceId -eq $graphSp.id }
   if (-not $hasGrant) {
