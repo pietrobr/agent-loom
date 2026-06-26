@@ -19,6 +19,7 @@ import logging
 import threading
 import time
 from typing import Optional
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import msal
@@ -128,3 +129,146 @@ def delete_group(group_id: str) -> None:
             log.warning("Delete group %s failed: %s %s", group_id, r.status_code, r.text)
     except Exception as exc:  # noqa: BLE001
         log.warning("delete_group error for %s: %s", group_id, exc)
+
+
+# --------------------------------------------------------------------------- #
+# Directory users + group membership (Admin Console "Users" tab)               #
+# --------------------------------------------------------------------------- #
+_USER_SELECT = "id,displayName,givenName,surname,userPrincipalName,mail"
+
+
+def _user_dto(u: dict) -> dict:
+    return {
+        "id": u.get("id"),
+        "display_name": u.get("displayName"),
+        "given_name": u.get("givenName"),
+        "surname": u.get("surname"),
+        "upn": u.get("userPrincipalName"),
+        "mail": u.get("mail"),
+    }
+
+
+def _extract_skiptoken(next_link: Optional[str]) -> Optional[str]:
+    if not next_link:
+        return None
+    try:
+        q = parse_qs(urlparse(next_link).query)
+        v = q.get("$skiptoken") or q.get("%24skiptoken")
+        return v[0] if v else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def list_users(
+    search: Optional[str] = None, top: int = 25, skip_token: Optional[str] = None
+) -> dict:
+    """List users in the CIAM tenant, paged. Returns
+    ``{"users": [...], "next_skip_token": <token|None>, "error": <str?>}``.
+
+    ``search`` does a prefix match across display name / UPN / mail. Paging uses
+    Graph's ``$skiptoken`` (pass the returned ``next_skip_token`` back to fetch
+    the next page). Requires the provisioning app to hold ``User.Read.All``
+    (Application) with admin consent in the CIAM tenant.
+    """
+    if not get_settings().group_provisioning_enabled:
+        return {"users": [], "next_skip_token": None}
+    h = _headers()
+    if not h:
+        return {"users": [], "next_skip_token": None}
+    params: dict = {"$select": _USER_SELECT, "$top": str(max(1, min(top, 100)))}
+    if search:
+        term = search.replace("'", "''")
+        params["$filter"] = (
+            f"startswith(displayName,'{term}') or "
+            f"startswith(userPrincipalName,'{term}') or "
+            f"startswith(mail,'{term}')"
+        )
+    else:
+        params["$orderby"] = "displayName"
+    if skip_token:
+        params["$skiptoken"] = skip_token
+    try:
+        r = httpx.get(f"{_GRAPH}/users", params=params, headers=h, timeout=20.0)
+        if r.status_code != 200:
+            log.warning("list_users failed: %s %s", r.status_code, r.text)
+            return {"users": [], "next_skip_token": None, "error": r.text[:300]}
+        data = r.json()
+        users = [_user_dto(u) for u in data.get("value", [])]
+        return {
+            "users": users,
+            "next_skip_token": _extract_skiptoken(data.get("@odata.nextLink")),
+        }
+    except Exception as exc:  # noqa: BLE001
+        log.warning("list_users error: %s", exc)
+        return {"users": [], "next_skip_token": None, "error": str(exc)}
+
+
+def list_group_members(group_id: str) -> list[dict]:
+    """All user members of a security group (follows paging)."""
+    if not get_settings().group_provisioning_enabled or not group_id:
+        return []
+    h = _headers()
+    if not h:
+        return []
+    out: list[dict] = []
+    url: Optional[str] = f"{_GRAPH}/groups/{group_id}/members/microsoft.graph.user"
+    params: Optional[dict] = {"$select": _USER_SELECT, "$top": "100"}
+    try:
+        while url:
+            r = httpx.get(url, params=params, headers=h, timeout=20.0)
+            params = None  # subsequent nextLink already carries the query
+            if r.status_code != 200:
+                log.warning("list_group_members failed: %s %s", r.status_code, r.text)
+                break
+            data = r.json()
+            out.extend(_user_dto(u) for u in data.get("value", []))
+            url = data.get("@odata.nextLink")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("list_group_members error for %s: %s", group_id, exc)
+    return out
+
+
+def add_group_member(group_id: str, user_id: str) -> bool:
+    """Add a user to a security group. Idempotent (already-member counts ok)."""
+    if not get_settings().group_provisioning_enabled or not (group_id and user_id):
+        return False
+    h = _headers()
+    if not h:
+        return False
+    try:
+        r = httpx.post(
+            f"{_GRAPH}/groups/{group_id}/members/$ref",
+            json={"@odata.id": f"{_GRAPH}/directoryObjects/{user_id}"},
+            headers=h,
+            timeout=20.0,
+        )
+        if r.status_code in (204, 201):
+            return True
+        # 400 with "already exist" → treat as success (idempotent add).
+        if r.status_code == 400 and "already exist" in r.text.lower():
+            return True
+        log.warning("add_group_member failed: %s %s", r.status_code, r.text)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("add_group_member error: %s", exc)
+    return False
+
+
+def remove_group_member(group_id: str, user_id: str) -> bool:
+    """Remove a user from a security group. Idempotent (404 counts ok)."""
+    if not get_settings().group_provisioning_enabled or not (group_id and user_id):
+        return False
+    h = _headers()
+    if not h:
+        return False
+    try:
+        r = httpx.delete(
+            f"{_GRAPH}/groups/{group_id}/members/{user_id}/$ref",
+            headers=h,
+            timeout=20.0,
+        )
+        if r.status_code in (204, 404):
+            return True
+        log.warning("remove_group_member failed: %s %s", r.status_code, r.text)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("remove_group_member error: %s", exc)
+    return False

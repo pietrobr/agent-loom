@@ -21,6 +21,7 @@ import { getToken, devAdminLogin } from "./api";
 import { authEnabled, currentUser, signOut, signIn } from "./auth";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { CustomersPage } from "./pages/CustomersPage";
+import { UsersPage } from "./pages/UsersPage";
 import { InstancesPage } from "./pages/InstancesPage";
 import { MeteringPage } from "./pages/MeteringPage";
 import { CostsPage } from "./pages/CostsPage";
@@ -68,6 +69,8 @@ export function App() {
 
   const tabValue = loc.pathname.startsWith("/customers")
     ? "/customers"
+    : loc.pathname.startsWith("/users")
+    ? "/users"
     : loc.pathname.startsWith("/instances")
     ? "/instances"
     : loc.pathname.startsWith("/metering")
@@ -187,6 +190,13 @@ export function App() {
       >
         <Tab value="/">Templates</Tab>
         <Tab value="/customers">Customers</Tab>
+        <Tab
+          value="/users"
+          disabled={!prod}
+          title={prod ? "Manage customer users" : "Available only in production (Entra External ID)"}
+        >
+          Users
+        </Tab>
         <Tab value="/instances">Instances</Tab>
         <Tab value="/metering">Metering</Tab>
         <Tab value="/tracing">Tracing</Tab>
@@ -198,6 +208,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<TemplatesPage />} />
           <Route path="/customers" element={<CustomersPage />} />
+          <Route path="/users" element={<UsersPage />} />
           <Route path="/instances" element={<InstancesPage />} />
           <Route path="/metering" element={<MeteringPage />} />
           <Route path="/tracing" element={<TracingPage />} />

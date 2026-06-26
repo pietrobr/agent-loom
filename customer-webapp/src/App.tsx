@@ -25,7 +25,7 @@ import {
   extractFile,
   ApiError,
 } from "./api";
-import { authEnabled, signOut, signIn } from "./auth";
+import { authEnabled, signOut, signIn, currentUserName } from "./auth";
 
 const useStyles = makeStyles({
   app: { display: "flex", flexDirection: "column", height: "100vh" },
@@ -199,6 +199,7 @@ export function App() {
   const [initializing, setInitializing] = useState(true);
   const [signedOut, setSignedOut] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [userName, setUserName] = useState("");
   const chatRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -301,6 +302,7 @@ export function App() {
     try {
       const [b, instances] = await Promise.all([fetchBranding(), fetchMyInstances()]);
       setBranding(b);
+      setUserName(currentUserName());
       const synthetic: DemoCustomer = {
         org_id: b.org_id,
         name: b.org_name || b.product_name,
@@ -536,15 +538,22 @@ export function App() {
             <Badge color="warning">no token</Badge>
           )}
           {prod && (
-            <Button
-              appearance="transparent"
-              style={{ color: "#fff" }}
-              icon={<SignOut20Regular />}
-              title="Sign out"
-              onClick={() => doSignOut()}
-            >
-              Sign out
-            </Button>
+            <>
+              {userName && (
+                <Text size={300} weight="semibold" style={{ color: "#fff" }}>
+                  {userName}
+                </Text>
+              )}
+              <Button
+                appearance="transparent"
+                style={{ color: "#fff" }}
+                icon={<SignOut20Regular />}
+                title="Sign out"
+                onClick={() => doSignOut()}
+              >
+                Sign out
+              </Button>
+            </>
           )}
         </div>
       </header>

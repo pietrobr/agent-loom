@@ -249,6 +249,20 @@ export interface InfraConfig {
   app_insights_wired: boolean;
 }
 
+export interface DirectoryUser {
+  id: string;
+  display_name?: string;
+  given_name?: string;
+  surname?: string;
+  upn?: string;
+  mail?: string;
+}
+export interface UserPage {
+  users: DirectoryUser[];
+  next_skip_token?: string | null;
+  error?: string;
+}
+
 // ---- Endpoints -------------------------------------------------------------
 export const api = {
   listTemplates: () => req<Template[]>("/v1/admin/templates"),
@@ -289,6 +303,28 @@ export const api = {
 
   metering: (orgId: string) =>
     req<Metering>(`/v1/admin/customers/${orgId}/metering`),
+
+  // ---- Customer users (CIAM directory) — production only -------------------
+  listCiamUsers: (opts: { search?: string; skipToken?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.search) p.set("search", opts.search);
+    if (opts.skipToken) p.set("skip_token", opts.skipToken);
+    if (opts.limit) p.set("limit", String(opts.limit));
+    const qs = p.toString();
+    return req<UserPage>(`/v1/admin/ciam/users${qs ? `?${qs}` : ""}`);
+  },
+  listGroupMembers: (orgId: string) =>
+    req<DirectoryUser[]>(`/v1/admin/customers/${orgId}/group/members`),
+  addGroupMember: (orgId: string, userId: string) =>
+    req<{ status: string }>(`/v1/admin/customers/${orgId}/group/members`, {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId }),
+    }),
+  removeGroupMember: (orgId: string, userId: string) =>
+    req<{ status: string }>(
+      `/v1/admin/customers/${orgId}/group/members/${userId}`,
+      { method: "DELETE" }
+    ),
 
   costs: (currency?: string) =>
     req<CostSummary>(`/v1/admin/costs${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),

@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
 from ..security import Principal, require_admin
 from ..services import agentic, blob, cosmos, foundry, search, ciam_groups, tracing
+from ..config import get_settings
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 log = logging.getLogger(__name__)
@@ -176,6 +177,75 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
     cosmos.record_lifecycle(org_id, (tenant or {}).get("name", org_id), active=False)
     cosmos.delete("tenants", org_id, org_id)
     return {"status": "deleted", "org_id": org_id}
+
+
+# --------------------------------------------------------------------------- #
+# Customer users (CIAM directory) — production only (groups model)            #
+# --------------------------------------------------------------------------- #
+def _require_group_mgmt() -> None:
+    if not get_settings().group_provisioning_enabled:
+        raise HTTPException(
+            400,
+            "User & group management is available only in production "
+            "(Entra External ID groups).",
+        )
+
+
+def _customer_group_id(org_id: str) -> str:
+    tenant = cosmos.get_tenant(org_id)
+    if not tenant:
+        raise HTTPException(404, "unknown customer")
+    gid = tenant.get("group_id")
+    if not gid:
+        raise HTTPException(409, "this customer has no CIAM security group")
+    return gid
+
+
+@router.get("/ciam/users")
+def list_directory_users(
+    search: str | None = None,
+    skip_token: str | None = None,
+    limit: int = 25,
+    _: Principal = Depends(require_admin),
+) -> Dict[str, Any]:
+    """List users in the customers (CIAM) tenant, paged. ``search`` prefix-matches
+    name / UPN / mail; pass back ``next_skip_token`` for the next page."""
+    _require_group_mgmt()
+    return ciam_groups.list_users(search=search, top=limit, skip_token=skip_token)
+
+
+@router.get("/customers/{org_id}/group/members")
+def list_customer_group_members(
+    org_id: str, _: Principal = Depends(require_admin)
+) -> List[Dict[str, Any]]:
+    """Users currently in this customer's CIAM security group."""
+    _require_group_mgmt()
+    return ciam_groups.list_group_members(_customer_group_id(org_id))
+
+
+@router.post("/customers/{org_id}/group/members")
+def add_customer_group_member(
+    org_id: str, payload: Dict[str, Any], _: Principal = Depends(require_admin)
+) -> Dict[str, str]:
+    """Add a directory user to this customer's CIAM security group."""
+    _require_group_mgmt()
+    user_id = (payload or {}).get("user_id")
+    if not user_id:
+        raise HTTPException(400, "user_id is required")
+    if not ciam_groups.add_group_member(_customer_group_id(org_id), user_id):
+        raise HTTPException(502, "failed to add the user to the group")
+    return {"status": "added", "user_id": user_id, "org_id": org_id}
+
+
+@router.delete("/customers/{org_id}/group/members/{user_id}")
+def remove_customer_group_member(
+    org_id: str, user_id: str, _: Principal = Depends(require_admin)
+) -> Dict[str, str]:
+    """Remove a directory user from this customer's CIAM security group."""
+    _require_group_mgmt()
+    if not ciam_groups.remove_group_member(_customer_group_id(org_id), user_id):
+        raise HTTPException(502, "failed to remove the user from the group")
+    return {"status": "removed", "user_id": user_id, "org_id": org_id}
 
 
 # --------------------------------------------------------------------------- #

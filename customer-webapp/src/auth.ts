@@ -100,6 +100,19 @@ export async function signOut(): Promise<void> {
   setToken("");
 }
 
+/** Display name of the signed-in user (given + family, or the full name), or "". */
+export function currentUserName(): string {
+  if (!authEnabled()) return "";
+  const pca = client();
+  const account = pca.getActiveAccount() || pca.getAllAccounts()[0];
+  if (!account) return "";
+  const claims = (account.idTokenClaims || {}) as Record<string, unknown>;
+  const given = typeof claims.given_name === "string" ? claims.given_name : "";
+  const family = typeof claims.family_name === "string" ? claims.family_name : "";
+  const full = [given, family].filter(Boolean).join(" ").trim();
+  return full || account.name || account.username || "";
+}
+
 /** Start a fresh interactive sign-in (used by the "Sign in again" link). */
 export async function signIn(): Promise<void> {
   if (!authEnabled()) {

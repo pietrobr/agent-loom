@@ -225,10 +225,13 @@ Write-Host "  set groupMembershipClaims=SecurityGroup on the customer app"
 # --------------------------------------------------------------------------- #
 # The backend uses this app to create/delete the per-customer security group in
 # the CIAM tenant when a customer is added/removed in the Admin Console. It needs
-# the Microsoft Graph application permission Group.ReadWrite.All + admin consent,
-# and a client secret (stored in Key Vault; printed below).
+# the Microsoft Graph application permissions Group.ReadWrite.All (create/manage
+# per-customer groups + membership) and User.Read.All (list directory users for
+# the Admin Console "Users" tab) + admin consent, and a client secret (stored in
+# Key Vault; printed below).
 $graphAppId = "00000003-0000-0000-c000-000000000000"          # Microsoft Graph
 $groupRwAllId = "62a82d76-70ea-41e2-9197-370581804d09"        # Group.ReadWrite.All (Application)
+$userReadAllId = "df021288-bdef-4463-88db-98f22de89214"       # User.Read.All (Application)
 
 $provApp = Invoke-Graph GET "$graph/applications?`$filter=displayName eq '$ProvisioningAppName'"
 if ($provApp -and $provApp.value.Count -gt 0) {
@@ -240,24 +243,32 @@ if ($provApp -and $provApp.value.Count -gt 0) {
     signInAudience         = "AzureADMyOrg"
     requiredResourceAccess = @(@{
       resourceAppId  = $graphAppId
-      resourceAccess = @(@{ id = $groupRwAllId; type = "Role" })
+      resourceAccess = @(
+        @{ id = $groupRwAllId; type = "Role" },
+        @{ id = $userReadAllId; type = "Role" }
+      )
     })
   }
   Write-Host "  created provisioning app '$ProvisioningAppName' (appId $($provApp.appId))" -ForegroundColor Green
 }
 $provSp = Ensure-ServicePrincipal -AppId $provApp.appId
 
-# Grant + admin-consent Group.ReadWrite.All to the provisioning SP (idempotent).
+# Grant + admin-consent the Graph app permissions to the provisioning SP (idempotent).
 $graphSp = (Invoke-Graph GET "$graph/servicePrincipals?`$filter=appId eq '$graphAppId'").value[0]
 $existingGrants = Invoke-Graph GET "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments"
-$hasGrant = $existingGrants.value | Where-Object { $_.appRoleId -eq $groupRwAllId -and $_.resourceId -eq $graphSp.id }
-if (-not $hasGrant) {
-  Invoke-Graph POST "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments" @{
-    principalId = $provSp.id; resourceId = $graphSp.id; appRoleId = $groupRwAllId
-  } | Out-Null
-  Write-Host "  granted + consented Group.ReadWrite.All to the provisioning app" -ForegroundColor Green
-} else {
-  Write-Host "  Group.ReadWrite.All already granted to the provisioning app"
+foreach ($role in @(
+    @{ id = $groupRwAllId; name = "Group.ReadWrite.All" },
+    @{ id = $userReadAllId; name = "User.Read.All" }
+  )) {
+  $hasGrant = $existingGrants.value | Where-Object { $_.appRoleId -eq $role.id -and $_.resourceId -eq $graphSp.id }
+  if (-not $hasGrant) {
+    Invoke-Graph POST "$graph/servicePrincipals/$($provSp.id)/appRoleAssignments" @{
+      principalId = $provSp.id; resourceId = $graphSp.id; appRoleId = $role.id
+    } | Out-Null
+    Write-Host "  granted + consented $($role.name) to the provisioning app" -ForegroundColor Green
+  } else {
+    Write-Host "  $($role.name) already granted to the provisioning app"
+  }
 }
 
 # Create a fresh client secret (printed once; store it in Key Vault).
