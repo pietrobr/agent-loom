@@ -69,6 +69,16 @@ own no infrastructure.
 - **Signed-in user shown in the chat**: in production the customer web app
   displays the signed-in user's name (from their Entra External ID token) next to
   the sign-out button.
+- **Per-customer URL** (`/<org_id>`): the customer app is reachable at a clean,
+  shareable address per customer. The path is **cosmetic** — access is always
+  authorized by the token, never by the URL — so it can't be used to reach
+  another customer: in production a wrong or foreign `org_id` in the address bar
+  is rewritten to the signed-in user's own org; in dev it preselects the demo
+  customer.
+- **Rich document attachments**: when a customer uploads a document into the
+  chat, the message bubble renders it as a tidy, collapsible **attachment card**
+  (filename + Markdown preview) instead of a wall of raw text; the full extracted
+  text is still sent to the agent for grounding.
 
 ---
 

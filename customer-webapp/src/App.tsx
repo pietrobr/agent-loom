@@ -214,6 +214,26 @@ interface Msg {
 // instead of dumping the raw text into the bubble.
 const DOC_RE = /^([\s\S]*?)\n\n--- BEGIN DOCUMENT ---\n([\s\S]*?)\n--- END DOCUMENT ---([\s\S]*)$/;
 
+// The customer app is reachable at `/<org-id>`. The path is **cosmetic** — the
+// backend always authorizes by token, never by the URL — so this is purely for a
+// clean, shareable address. In dev the path preselects the demo customer; in
+// prod the URL is rewritten to the signed-in user's own org so a wrong/foreign
+// org-id in the address bar is corrected to theirs.
+function orgFromPath(): string {
+  const seg = window.location.pathname.split("/").filter(Boolean)[0] || "";
+  try {
+    return decodeURIComponent(seg);
+  } catch {
+    return seg;
+  }
+}
+function setUrlOrg(orgId: string): void {
+  const target = orgId ? `/${encodeURIComponent(orgId)}` : "/";
+  if (window.location.pathname !== target) {
+    window.history.replaceState(null, "", target);
+  }
+}
+
 function UserBubble({ text }: { text: string }): JSX.Element {
   const styles = useStyles();
   const m = DOC_RE.exec(text);
@@ -300,6 +320,7 @@ export function App() {
   async function selectCustomer(c: DemoCustomer) {
     setErr("");
     setCustomer(c);
+    setUrlOrg(c.org_id);
     setInstanceId(c.instances[0]?.id || "");
     setMessages([]);
     setConvId(undefined);
@@ -332,7 +353,10 @@ export function App() {
       if (stillThere) {
         setCustomers(list);
       } else if (!opts.keepSelection || !customer) {
-        await selectCustomer(list[0]);
+        // Honour the org-id in the URL when it matches a known customer,
+        // otherwise fall back to the first (and correct the address bar).
+        const fromPath = list.find((c) => c.org_id === orgFromPath());
+        await selectCustomer(fromPath || list[0]);
       }
     } catch (e: any) {
       setErr(e.message);
@@ -372,6 +396,7 @@ export function App() {
         instances,
       };
       setCustomer(synthetic);
+      setUrlOrg(b.org_id);
       setInstanceId(instances[0]?.id || "");
       if (!instances.length) {
         setErr("No chat instance is configured for your account yet.");
