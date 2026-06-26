@@ -39,6 +39,32 @@ const useStyles = makeStyles({
     borderRadius: "6px 6px 0 0",
     background: "linear-gradient(180deg, #00A8A8 0%, #138DDE 60%, #4F6BFF 100%)",
   },
+  barProvider: {
+    width: "100%",
+    maxWidth: "56px",
+    borderRadius: "6px 6px 0 0",
+    background: "linear-gradient(180deg, #B3B0AD 0%, #605E5C 100%)",
+  },
+  barStack: { display: "flex", flexDirection: "column", justifyContent: "flex-end", width: "100%", maxWidth: "56px" },
+  barProjected: {
+    width: "100%",
+    borderRadius: "6px 6px 0 0",
+    background: "repeating-linear-gradient(45deg, rgba(79,107,255,0.55) 0 5px, rgba(79,107,255,0.18) 5px 10px)",
+  },
+  barPair: { display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "10px", height: "150px" },
+  barUnit: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "4px",
+    width: "48px",
+  },
+  legend: { display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" },
+  legendItem: { display: "flex", gap: "6px", alignItems: "center", fontSize: "12px", color: tokens.colorNeutralForeground2 },
+  swatchClients: { width: "12px", height: "12px", borderRadius: "3px", background: "linear-gradient(180deg, #00A8A8 0%, #4F6BFF 100%)" },
+  swatchProvider: { width: "12px", height: "12px", borderRadius: "3px", background: "linear-gradient(180deg, #B3B0AD 0%, #605E5C 100%)" },
+  swatchProjected: { width: "12px", height: "12px", borderRadius: "3px", background: "repeating-linear-gradient(45deg, rgba(79,107,255,0.6) 0 4px, rgba(79,107,255,0.2) 4px 8px)" },
   barLabel: { fontSize: "11px", color: tokens.colorNeutralForeground3, whiteSpace: "nowrap" },
   barValue: { fontSize: "11px", color: tokens.colorNeutralForeground2 },
   monthCard: { padding: "16px", display: "flex", flexDirection: "column", gap: "8px" },
@@ -153,10 +179,14 @@ export function CostsPage() {
     statusByOrg[orgId] || { label: "Closed", color: "danger" as const };
 
   const currency = data?.currency || costCurrency;
-  const maxMonth = useMemo(
-    () => Math.max(1, ...(data?.by_month || []).map((m) => m.total_cost)),
-    [data]
-  );
+  // What the provider actually pays in a month: the full fixed platform cost
+  // (paid whether or not customers are active) + all variable AI usage.
+  const infraMonthly = data?.infra_monthly || 0;
+  const providerSpend = (m: {
+    token_cost: number;
+    embedding_cost?: number;
+    agentic_cost?: number;
+  }) => infraMonthly + (m.token_cost || 0) + (m.embedding_cost || 0) + (m.agentic_cost || 0);
   // Chart shows oldest → newest (by_month arrives newest-first).
   const chartMonths = useMemo(() => [...(data?.by_month || [])].reverse(), [data]);
 
@@ -167,27 +197,45 @@ export function CostsPage() {
     const cur = data?.by_month?.[0];
     if (!cur) return null;
     const daysInMonth = cur.days_in_month || 30;
+    // Project the REMAINING days of the month at each customer's current daily
+    // rate and ADD them to what they've already spent (we don't re-scale the
+    // whole month). Remaining days apply only to the current calendar month.
+    const now = new Date();
+    const curMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+    const remainingDays =
+      cur.month === curMonth ? Math.max(0, daysInMonth - now.getUTCDate()) : 0;
     const rows = cur.clients.map((c) => {
       const st = statusOf(c.org_id).label;
       const open = st === "Open";
       const activeDays = Math.max(1, c.active_days || 1);
-      const factor = open ? daysInMonth / activeDays : 1;
+      const dailyTotal = c.total_cost / activeDays;
+      const dailyInfra = c.infra_cost / activeDays;
+      const addDays = open ? remainingDays : 0;
       return {
         org_id: c.org_id,
         name: c.name,
         open,
         current_total: c.total_cost,
         current_infra: c.infra_cost,
-        projected_total: c.total_cost * factor,
-        projected_infra: c.infra_cost * factor,
+        daily_rate: dailyTotal,
+        projected_total: c.total_cost + dailyTotal * addDays,
+        projected_infra: c.infra_cost + dailyInfra * addDays,
       };
     });
     const projectedInfraRecovered = rows.reduce((s, r) => s + r.projected_infra, 0);
     const projectedTotal = rows.reduce((s, r) => s + r.projected_total, 0);
     const infraMonthly = data?.infra_monthly || 0;
     const gap = Math.max(0, infraMonthly - projectedInfraRecovered);
-    return { month: cur.month, daysInMonth, rows, projectedInfraRecovered, projectedTotal, infraMonthly, gap };
+    return { month: cur.month, daysInMonth, remainingDays, rows, projectedInfraRecovered, projectedTotal, infraMonthly, gap };
   }, [data, statusByOrg]);
+
+  // Chart Y-scale must also fit the projected (stacked) billable bar.
+  const maxMonth = useMemo(() => {
+    const vals: number[] = [];
+    for (const m of data?.by_month || []) vals.push(m.total_cost, providerSpend(m));
+    if (projection) vals.push(projection.projectedTotal);
+    return Math.max(1, ...vals);
+  }, [data, projection]);
 
   // What the SaaS owner actually pays at month end: the fixed shared platform
   // plus the variable AI usage (LLM tokens, embeddings, agentic) for the current month.
@@ -335,34 +383,91 @@ export function CostsPage() {
           </Card>
 
           <Card className={styles.chartCard} style={{ order: 3 }}>
-            <Text weight="semibold">Monthly cost — actual recorded so far (current)</Text>
+            <Text weight="semibold">Spend so far this month — customers vs. provider</Text>
+            <Text size={200} italic>
+              <b>Customers</b> = what you can bill so far (each customer's AI usage + their share of
+              the platform); the striped segment on top projects their billing to month-end at the
+              current daily rate. <b>Provider</b> = what you actually pay (the full fixed platform,
+              billed whether or not customers are active, + all AI usage). The gap between the top of
+              the customers bar and the provider bar is the platform capacity not covered by customers.
+            </Text>
             {chartMonths.length === 0 ? (
               <Text size={200} italic>
                 No cost recorded yet.
               </Text>
             ) : (
-              <div className={styles.chart}>
-                {chartMonths.map((m) => (
-                  <div
-                    key={m.month}
-                    className={styles.barCol}
-                    title={`${money(m.total_cost, currency)} (tokens ${smallMoney(
-                      m.token_cost,
-                      currency
-                    )} · embedding ${smallMoney(m.embedding_cost ?? 0, currency)} · agentic ${smallMoney(
-                      m.agentic_cost ?? 0,
-                      currency
-                    )} · infra ${money(m.infra_cost, currency)})`}
-                  >
-                    <span className={styles.barValue}>{money(m.total_cost, currency)}</span>
-                    <div
-                      className={styles.bar}
-                      style={{ height: `${Math.round((m.total_cost / maxMonth) * 130)}px` }}
-                    />
-                    <span className={styles.barLabel}>{m.month}</span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className={styles.legend}>
+                  <span className={styles.legendItem}>
+                    <span className={styles.swatchClients} /> Billable to customers (so far)
+                  </span>
+                  <span className={styles.legendItem}>
+                    <span className={styles.swatchProjected} /> Projected to month-end
+                  </span>
+                  <span className={styles.legendItem}>
+                    <span className={styles.swatchProvider} /> Provider actual spend
+                  </span>
+                </div>
+                <div className={styles.chart}>
+                  {chartMonths.map((m) => {
+                    const billable = m.total_cost;
+                    const provider = providerSpend(m);
+                    const projectedBillable =
+                      projection && projection.month === m.month
+                        ? projection.projectedTotal
+                        : billable;
+                    const inc = Math.max(0, projectedBillable - billable);
+                    return (
+                      <div key={m.month} className={styles.barCol}>
+                        <div className={styles.barPair}>
+                          <div
+                            className={styles.barUnit}
+                            title={`Billable to customers: now ${money(billable, currency)} → projected month-end ${money(
+                              projectedBillable,
+                              currency
+                            )} (+${money(inc, currency)})`}
+                          >
+                            <span className={styles.barValue}>{money(projectedBillable, currency)}</span>
+                            <div className={styles.barStack}>
+                              {inc > 0 && (
+                                <div
+                                  className={styles.barProjected}
+                                  style={{ height: `${Math.round((inc / maxMonth) * 130)}px` }}
+                                />
+                              )}
+                              <div
+                                className={styles.bar}
+                                style={{
+                                  height: `${Math.round((billable / maxMonth) * 130)}px`,
+                                  borderTopLeftRadius: inc > 0 ? 0 : undefined,
+                                  borderTopRightRadius: inc > 0 ? 0 : undefined,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div
+                            className={styles.barUnit}
+                            title={`Provider actual spend: ${money(provider, currency)} (fixed platform ${money(
+                              infraMonthly,
+                              currency
+                            )} + AI usage ${smallMoney(
+                              (m.token_cost || 0) + (m.embedding_cost ?? 0) + (m.agentic_cost ?? 0),
+                              currency
+                            )})`}
+                          >
+                            <span className={styles.barValue}>{money(provider, currency)}</span>
+                            <div
+                              className={styles.barProvider}
+                              style={{ height: `${Math.round((provider / maxMonth) * 130)}px` }}
+                            />
+                          </div>
+                        </div>
+                        <span className={styles.barLabel}>{m.month}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </Card>
 
@@ -373,8 +478,9 @@ export function CostsPage() {
                 <Text weight="semibold">{money(projection.projectedTotal, currency)}</Text>
               </div>
               <Text size={200} italic>
-                Open customers are extrapolated from their current daily rate to all{" "}
-                {projection.daysInMonth} days; suspended/closed ones are frozen at today's cost.
+                Open customers: what they've spent so far <b>plus</b> the {projection.remainingDays}{" "}
+                day(s) left in the month at their current daily rate; suspended/closed ones are frozen
+                at today's cost.
               </Text>
               <Table size="small">
                 <TableHeader>
@@ -443,9 +549,11 @@ export function CostsPage() {
               </div>
               {m.weights && (
                 <Text size={200} italic>
-                  Infra split weighted by tokens {Math.round(m.weights.tokens * 100)}% · calls{" "}
-                  {Math.round(m.weights.calls * 100)}% · documents{" "}
-                  {Math.round(m.weights.documents * 100)}%
+                  Fixed shared-platform cost split by tokens {Math.round(m.weights.tokens * 100)}% ·
+                  calls {Math.round(m.weights.calls * 100)}% · documents{" "}
+                  {Math.round(m.weights.documents * 100)}% (then pro-rated by each customer's active
+                  days). AI usage — tokens, embeddings, agentic — is billed directly to the customer,
+                  not weighted.
                 </Text>
               )}
               <Table size="small">
