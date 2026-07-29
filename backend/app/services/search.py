@@ -226,6 +226,30 @@ def document_count(org_id: str) -> int:
         return 0
 
 
+def document_count_for_instance(org_id: str, instance_id: str) -> int:
+    """Number of distinct source documents indexed for a given instance.
+
+    Uploaded documents are split into chunks that share a ``parent_id`` (the
+    source document id), so the number of distinct ``parent_id`` values is the
+    number of documents. Returns 0 when the index is missing or the count
+    cannot be read.
+    """
+    name = index_name_for(org_id)
+    try:
+        res = _search_client(name).search(
+            search_text="*",
+            filter=f"org_id eq '{org_id}' and instance_id eq '{instance_id}'",
+            select=["parent_id"],
+            top=1000,
+        )
+        return len({r["parent_id"] for r in res if r.get("parent_id")})
+    except ResourceNotFoundError:
+        return 0
+    except Exception as exc:  # pragma: no cover
+        log.info("document_count_for_instance(%s, %s) ignored: %s", org_id, instance_id, exc)
+        return 0
+
+
 def delete_instance_docs(org_id: str, instance_id: str) -> int:
     """Delete every indexed document that belongs to a given instance. Returns
     the count removed (best-effort, idempotent)."""

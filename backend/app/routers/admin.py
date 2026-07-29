@@ -306,6 +306,15 @@ def list_customer_instances(org_id: str, _: Principal = Depends(require_admin)) 
     return cosmos.list_instances(org_id)
 
 
+@router.get("/customers/{org_id}/instances/document-counts")
+def instance_document_counts(org_id: str, _: Principal = Depends(require_admin)) -> Dict[str, int]:
+    """Number of distinct source documents indexed per instance for a customer."""
+    return {
+        inst["id"]: search.document_count_for_instance(org_id, inst["id"])
+        for inst in cosmos.list_instances(org_id)
+    }
+
+
 @router.post("/customers/{org_id}/instances")
 def upsert_instance(org_id: str, payload: Dict[str, Any], _: Principal = Depends(require_admin)) -> Dict[str, Any]:
     if not cosmos.get_tenant(org_id):

@@ -280,6 +280,8 @@ export const api = {
 
   listInstances: (orgId: string) =>
     req<Instance[]>(`/v1/admin/customers/${orgId}/instances`),
+  instanceDocumentCounts: (orgId: string) =>
+    req<Record<string, number>>(`/v1/admin/customers/${orgId}/instances/document-counts`),
   saveInstance: (orgId: string, i: Partial<Instance>) =>
     req<Instance>(`/v1/admin/customers/${orgId}/instances`, {
       method: "POST",

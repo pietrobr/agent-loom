@@ -16,6 +16,7 @@ import {
   Dropdown,
   Option,
 } from "@fluentui/react-components";
+import { ChevronDown20Regular, ChevronRight20Regular } from "@fluentui/react-icons";
 import { api, CostSummary, Tenant } from "../api";
 
 const useStyles = makeStyles({
@@ -130,6 +131,9 @@ export function CostsPage() {
   const [customers, setCustomers] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  // Which per-month breakdown cards are expanded. Only the most recent month is
+  // open by default; older months collapse to just their header to save space.
+  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
   // Currency choice is remembered across browser sessions.
   const [costCurrency, setCostCurrency] = useState<string>(() => {
     try {
@@ -177,6 +181,14 @@ export function CostsPage() {
   }, [customers]);
   const statusOf = (orgId: string) =>
     statusByOrg[orgId] || { label: "Closed", color: "danger" as const };
+
+  // by_month is newest-first, so the first entry is the current month.
+  const currentMonthKey = data?.by_month?.[0]?.month;
+  // A month card is open when explicitly toggled, or (untouched) when it is the
+  // current month. Older months default to collapsed to save vertical space.
+  const isMonthOpen = (month: string) => openMonths[month] ?? month === currentMonthKey;
+  const toggleMonth = (month: string) =>
+    setOpenMonths((prev) => ({ ...prev, [month]: !(prev[month] ?? month === currentMonthKey) }));
 
   const currency = data?.currency || costCurrency;
   // What the provider actually pays in a month: the full fixed platform cost
@@ -518,14 +530,14 @@ export function CostsPage() {
                 className={styles.projGap}
                 style={{
                   backgroundColor:
-                    projection.gap > 0
+                    projection.gap >= 0.005
                       ? tokens.colorPaletteRedBackground2
                       : tokens.colorPaletteGreenBackground2,
                 }}
               >
                 <div>
                   <Text weight="semibold">
-                    {projection.gap > 0 ? "Architecture not yet covered" : "Architecture fully covered"}
+                    {projection.gap >= 0.005 ? "Architecture not yet covered" : "Architecture fully covered"}
                   </Text>
                   <div>
                     <Text size={200}>
@@ -535,7 +547,7 @@ export function CostsPage() {
                   </div>
                 </div>
                 <Text size={500} weight="bold">
-                  {projection.gap > 0 ? `-${money(projection.gap, currency)}` : money(0, currency)}
+                  {projection.gap >= 0.005 ? `-${money(projection.gap, currency)}` : money(0, currency)}
                 </Text>
               </div>
             </Card>
@@ -543,71 +555,90 @@ export function CostsPage() {
 
           {data.by_month.map((m) => (
             <Card key={m.month} className={styles.monthCard} style={{ order: 2 }}>
-              <div className={styles.monthHead}>
-                <Text weight="semibold">{m.month}</Text>
+              <div
+                className={styles.monthHead}
+                role="button"
+                tabIndex={0}
+                style={{ cursor: "pointer" }}
+                onClick={() => toggleMonth(m.month)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleMonth(m.month);
+                  }
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  {isMonthOpen(m.month) ? <ChevronDown20Regular /> : <ChevronRight20Regular />}
+                  <Text weight="semibold">{m.month}</Text>
+                </div>
                 <Text weight="semibold">{money(m.total_cost, currency)}</Text>
               </div>
-              {m.weights && (
-                <Text size={200} italic>
-                  Fixed shared-platform cost split by tokens {Math.round(m.weights.tokens * 100)}% ·
-                  calls {Math.round(m.weights.calls * 100)}% · documents{" "}
-                  {Math.round(m.weights.documents * 100)}% (then pro-rated by each customer's active
-                  days). AI usage — tokens, embeddings, agentic — is billed directly to the customer,
-                  not weighted.
-                </Text>
+              {isMonthOpen(m.month) && (
+                <>
+                  {m.weights && (
+                    <Text size={200} italic>
+                      Fixed shared-platform cost split by tokens {Math.round(m.weights.tokens * 100)}% ·
+                      calls {Math.round(m.weights.calls * 100)}% · documents{" "}
+                      {Math.round(m.weights.documents * 100)}% (then pro-rated by each customer's active
+                      days). AI usage — tokens, embeddings, agentic — is billed directly to the customer,
+                      not weighted.
+                    </Text>
+                  )}
+                  <Table size="small">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHeaderCell className={styles.nameCell}>Customer</TableHeaderCell>
+                        <TableHeaderCell>Tokens</TableHeaderCell>
+                        <TableHeaderCell>Calls</TableHeaderCell>
+                        <TableHeaderCell>Documents</TableHeaderCell>
+                        <TableHeaderCell>Active days</TableHeaderCell>
+                        <TableHeaderCell>Infra share</TableHeaderCell>
+                        <TableHeaderCell>Token cost</TableHeaderCell>
+                        <TableHeaderCell>Embedding</TableHeaderCell>
+                        <TableHeaderCell>Agentic</TableHeaderCell>
+                        <TableHeaderCell>Infra cost</TableHeaderCell>
+                        <TableHeaderCell>Total</TableHeaderCell>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {m.clients.map((c) => (
+                        <TableRow key={c.org_id}>
+                          <TableCell className={styles.nameCell}>
+                            <div>
+                              <Text>{c.name}</Text>
+                              <div>
+                                <Badge appearance="filled" color={statusOf(c.org_id).color}>
+                                  {statusOf(c.org_id).label}
+                                </Badge>
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{c.tokens.toLocaleString()}</TableCell>
+                          <TableCell>{c.calls}</TableCell>
+                          <TableCell>{(c.documents ?? 0).toLocaleString()}</TableCell>
+                          <TableCell>
+                            {c.active_days ?? "—"}
+                            {c.days_in_month ? ` / ${c.days_in_month}` : ""}
+                          </TableCell>
+                          <TableCell>{Math.round((c.infra_weight ?? 0) * 100)}%</TableCell>
+                          <TableCell>{smallMoney(c.token_cost, currency)}</TableCell>
+                          <TableCell title={`${(c.embedding_tokens ?? 0).toLocaleString()} tokens`}>
+                            {smallMoney(c.embedding_cost ?? 0, currency)}
+                          </TableCell>
+                          <TableCell title={`${(c.agentic_tokens ?? 0).toLocaleString()} planning tokens`}>
+                            {smallMoney(c.agentic_cost ?? 0, currency)}
+                          </TableCell>
+                          <TableCell>{money(c.infra_cost, currency)}</TableCell>
+                          <TableCell>
+                            <Text weight="semibold">{money(c.total_cost, currency)}</Text>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </>
               )}
-              <Table size="small">
-                <TableHeader>
-                  <TableRow>
-                    <TableHeaderCell className={styles.nameCell}>Customer</TableHeaderCell>
-                    <TableHeaderCell>Tokens</TableHeaderCell>
-                    <TableHeaderCell>Calls</TableHeaderCell>
-                    <TableHeaderCell>Documents</TableHeaderCell>
-                    <TableHeaderCell>Active days</TableHeaderCell>
-                    <TableHeaderCell>Infra share</TableHeaderCell>
-                    <TableHeaderCell>Token cost</TableHeaderCell>
-                    <TableHeaderCell>Embedding</TableHeaderCell>
-                    <TableHeaderCell>Agentic</TableHeaderCell>
-                    <TableHeaderCell>Infra cost</TableHeaderCell>
-                    <TableHeaderCell>Total</TableHeaderCell>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {m.clients.map((c) => (
-                    <TableRow key={c.org_id}>
-                      <TableCell className={styles.nameCell}>
-                        <div>
-                          <Text>{c.name}</Text>
-                          <div>
-                            <Badge appearance="filled" color={statusOf(c.org_id).color}>
-                              {statusOf(c.org_id).label}
-                            </Badge>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{c.tokens.toLocaleString()}</TableCell>
-                      <TableCell>{c.calls}</TableCell>
-                      <TableCell>{(c.documents ?? 0).toLocaleString()}</TableCell>
-                      <TableCell>
-                        {c.active_days ?? "—"}
-                        {c.days_in_month ? ` / ${c.days_in_month}` : ""}
-                      </TableCell>
-                      <TableCell>{Math.round((c.infra_weight ?? 0) * 100)}%</TableCell>
-                      <TableCell>{smallMoney(c.token_cost, currency)}</TableCell>
-                      <TableCell title={`${(c.embedding_tokens ?? 0).toLocaleString()} tokens`}>
-                        {smallMoney(c.embedding_cost ?? 0, currency)}
-                      </TableCell>
-                      <TableCell title={`${(c.agentic_tokens ?? 0).toLocaleString()} planning tokens`}>
-                        {smallMoney(c.agentic_cost ?? 0, currency)}
-                      </TableCell>
-                      <TableCell>{money(c.infra_cost, currency)}</TableCell>
-                      <TableCell>
-                        <Text weight="semibold">{money(c.total_cost, currency)}</Text>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
             </Card>
           ))}
 

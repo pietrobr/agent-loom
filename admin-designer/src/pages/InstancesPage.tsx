@@ -100,6 +100,7 @@ export function InstancesPage() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [orgId, setOrgId] = useState<string>("");
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({});
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -191,6 +192,11 @@ export function InstancesPage() {
       setKInstanceId((prev) =>
         list.some((i) => i.id === prev) ? prev : list[0]?.id || ""
       );
+      // Document counts per instance (best-effort; don't block the list).
+      api
+        .instanceDocumentCounts(id)
+        .then(setDocCounts)
+        .catch(() => setDocCounts({}));
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -426,6 +432,21 @@ export function InstancesPage() {
                         {" "}
                         <Badge appearance="tint" color="brand" size="small">
                           Agentic RAG
+                        </Badge>
+                      </>
+                    ) : (
+                      <>
+                        {" "}
+                        <Badge appearance="tint" color="informative" size="small">
+                          Index RAG
+                        </Badge>
+                      </>
+                    )}
+                    {docCounts[i.id] !== undefined ? (
+                      <>
+                        {" "}
+                        <Badge appearance="tint" color="subtle" size="small">
+                          {docCounts[i.id]} {docCounts[i.id] === 1 ? "document" : "documents"}
                         </Badge>
                       </>
                     ) : null}
