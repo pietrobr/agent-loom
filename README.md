@@ -266,19 +266,17 @@ flowchart LR
     class PRODTAG prod;
 ```
 
-Adopting Entra requires changing **only one file**: the token-verification
-helper in [backend/app/security.py](backend/app/security.py). Today (MVP) it
-checks tokens signed with **HS256** — a single shared secret used both to sign
-and to verify. In production you switch it to **RS256 verified via JWKS**: the
-backend no longer holds any signing secret; instead it downloads the public
-keys from your Entra tenants' JWKS endpoints and uses them to verify each
-token's signature, issuer and audience. (Why RS256 + JWKS is the secure,
-no-shared-secret choice is explained in §6.) Nothing else moves: the tenant
-middleware, the per-`org_id` isolation and all routers keep working unchanged,
-because they only ever read the resolved `org_id` / `roles` from the validated
-token — they don't care *how* it was validated or how the `org_id` was resolved
-(in production it comes from the customer's `groups` claim). See
-[§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam).
+AgentLoom already supports both authentication modes in
+[backend/app/security.py](backend/app/security.py), selected through
+`AUTH_MODE`: **dev** accepts HS256 demo tokens, while **production** validates
+RS256 access tokens against the workforce and External ID tenants' JWKS
+endpoints. In production the backend holds no token-signing secret; it downloads
+the public keys and verifies each token's signature, issuer and audience. The
+tenant middleware, per-`org_id` isolation and routers use the resulting
+`org_id` / `roles` principal regardless of the authentication mode. Customer
+`org_id` values are resolved from the External ID token's `groups` claim. See
+[§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam)
+for the required tenant, app registration and environment configuration.
 
 **Runtime chat flow:** customer user → front door (authenticates, resolves
 `org_id` from the token, enforces isolation) → backend embeds the question and
