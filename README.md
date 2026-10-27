@@ -952,6 +952,13 @@ SaaS Console's *Assign template* form).
 Try in the customer-webapp: *"What is your refund policy?"* (Horizon) or
 *"What's included in a support contract?"* (NovaTech).
 
+For an additional **manual-onboarding** sample, see
+[WPC 2026 Session Guide](sample-customers/wpc-2026/README.md): an unofficial
+conference assistant with an original demo logo, 92 unique programme entries
+and 115 public speaker profiles, based on the official programme snapshot of
+October 27, 2026. Its README includes branding, setup instructions, suggested
+questions and acceptance checks. It is not added to the automatic seed list.
+
 ---
 
 ## Security & policy notes
