@@ -37,6 +37,11 @@ param embeddingModelVersion string = '1'
 @description('Container image tag to deploy initially (azd overrides this).')
 param containerImageTag string = 'latest'
 
+@minValue(0)
+@maxValue(3)
+@description('Minimum replicas for each Container App. Use 1 in production to avoid cold starts.')
+param containerMinReplicas int = 0
+
 @description('Whether each service already exists (set by azd via SERVICE_*_RESOURCE_EXISTS).')
 param backendExists bool = false
 param adminExists bool = false
@@ -307,6 +312,7 @@ module backendApp 'modules/containerapp.bicep' = {
     image: '${acr.outputs.loginServer}/${names.backendApp}:${containerImageTag}'
     targetPort: 8000
     externalIngress: true
+    minReplicas: containerMinReplicas
     exists: backendExists
     tags: union(commonTags, { 'azd-service-name': 'backend' })
     envVars: [
@@ -355,6 +361,7 @@ module adminApp 'modules/containerapp.bicep' = {
     image: '${acr.outputs.loginServer}/${names.adminApp}:${containerImageTag}'
     targetPort: 80
     externalIngress: true
+    minReplicas: containerMinReplicas
     exists: adminExists
     tags: union(commonTags, { 'azd-service-name': 'admin-designer' })
     envVars: [
@@ -377,6 +384,7 @@ module customerApp 'modules/containerapp.bicep' = {
     image: '${acr.outputs.loginServer}/${names.customerApp}:${containerImageTag}'
     targetPort: 80
     externalIngress: true
+    minReplicas: containerMinReplicas
     exists: customerExists
     tags: union(commonTags, { 'azd-service-name': 'customer-webapp' })
     envVars: [

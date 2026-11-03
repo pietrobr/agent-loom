@@ -9,6 +9,7 @@ param foundryModelVersion = readEnvironmentVariable('FOUNDRY_MODEL_VERSION', '20
 param embeddingModelName = readEnvironmentVariable('EMBEDDING_MODEL_NAME', 'text-embedding-3-small')
 param embeddingModelVersion = readEnvironmentVariable('EMBEDDING_MODEL_VERSION', '1')
 param containerImageTag = readEnvironmentVariable('AZURE_CONTAINER_TAG', 'latest')
+param containerMinReplicas = int(readEnvironmentVariable('CONTAINER_MIN_REPLICAS', '0'))
 param backendExists = bool(readEnvironmentVariable('SERVICE_BACKEND_RESOURCE_EXISTS', 'false'))
 param adminExists = bool(readEnvironmentVariable('SERVICE_ADMIN_DESIGNER_RESOURCE_EXISTS', 'false'))
 param customerExists = bool(readEnvironmentVariable('SERVICE_CUSTOMER_WEBAPP_RESOURCE_EXISTS', 'false'))
