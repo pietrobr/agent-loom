@@ -627,6 +627,12 @@ Console**, the backend creates the group automatically (and deletes it when the
 customer is removed) using a dedicated **provisioning app** whose secret lives in
 Key Vault.
 
+Customer deletion requires removing all attached instances first. The backend then
+deletes the agentic knowledge base, its knowledge source, and finally the Search
+index, in dependency order. Missing agentic resources are safe to retry; other
+Search cleanup errors return HTTP 502 and keep the customer record and lifecycle
+unchanged. Only successful Search cleanup proceeds to group and customer removal.
+
 > The Users tab needs the provisioning app to hold the Microsoft Graph
 > application permissions **`Group.ReadWrite.All`** (membership) and
 > **`User.Read.All`** (directory listing), both granted + admin-consented by

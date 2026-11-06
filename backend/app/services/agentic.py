@@ -139,19 +139,22 @@ def ensure_resources(org_id: str) -> Dict[str, str]:
 
 
 def delete_resources(org_id: str) -> None:
-    """Best-effort teardown of the knowledge base + source for a customer."""
+    """Delete the knowledge base before its source; missing resources are safe."""
     ks = knowledge_source_name(org_id)
     kb = knowledge_base_name(org_id)
     with httpx.Client(timeout=30.0) as client:
         for path in (f"knowledgebases/{kb}", f"knowledgesources/{ks}"):
             try:
-                client.delete(
+                response = client.delete(
                     f"{_base()}/{path}",
                     params={"api-version": _API_VERSION},
                     headers=_headers(),
                 )
-            except Exception as exc:  # pragma: no cover
-                log.info("agentic delete %s ignored: %s", path, exc)
+                if response.status_code != 404:
+                    response.raise_for_status()
+            except httpx.HTTPError:
+                log.exception("Failed to delete agentic resource %s", path)
+                raise
 
 
 # --------------------------------------------------------------------------- #

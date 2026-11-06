@@ -10,6 +10,8 @@ import unicodedata
 import uuid
 from typing import Any, Dict, List
 
+import httpx
+from azure.core.exceptions import AzureError
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 
 from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
@@ -166,10 +168,17 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
             409,
             f"customer has {len(instances)} instance(s); remove them before deleting the customer",
         )
-    # No instances → safe to drop the (now-empty) Search index and the tenant.
-    search.delete_index(org_id)
-    # Tear down any agentic-retrieval knowledge base + source for this customer.
-    agentic.delete_resources(org_id)
+    # Knowledge sources reference the index, so remove those dependencies first.
+    try:
+        agentic.delete_resources(org_id)
+        search.delete_index(org_id)
+    except (AzureError, httpx.HTTPError) as exc:
+        log.exception("Failed to delete Search resources for customer %s", org_id)
+        raise HTTPException(
+            502,
+            "Unable to delete customer Search resources. The customer record has not "
+            "been deleted; check the backend logs and retry.",
+        ) from exc
     # Remove the per-customer CIAM security group (groups model), if any.
     tenant = cosmos.get_tenant(org_id)
     if tenant and tenant.get("group_id"):
