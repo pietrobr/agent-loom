@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactElement, useEffect, useMemo, useState } from "react";
 import {
   Card,
   Text,
@@ -15,8 +15,9 @@ import {
   tokens,
   Dropdown,
   Option,
+  Tooltip,
 } from "@fluentui/react-components";
-import { ChevronDown20Regular, ChevronRight20Regular } from "@fluentui/react-icons";
+import { ChevronDown20Regular, ChevronRight20Regular, Info16Regular } from "@fluentui/react-icons";
 import { api, CostSummary, Tenant } from "../api";
 
 const useStyles = makeStyles({
@@ -80,6 +81,20 @@ const useStyles = makeStyles({
     padding: "10px 12px",
     borderRadius: tokens.borderRadiusMedium,
   },
+  projectionExplainer: {
+    padding: "12px 14px",
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: tokens.colorNeutralBackground2,
+  },
+  totalWithInfo: { display: "inline-flex", alignItems: "center", gap: "4px" },
+  infoTrigger: {
+    display: "inline-flex",
+    color: tokens.colorBrandForeground1,
+    cursor: "help",
+    borderRadius: tokens.borderRadiusCircular,
+    ":focus-visible": { outline: `2px solid ${tokens.colorStrokeFocus2}` },
+  },
 });
 
 function money(n: number, currency: string): string {
@@ -108,6 +123,24 @@ function smallMoney(n: number, currency: string): string {
     }
   }
   return money(n, currency);
+}
+
+function FormulaInfo({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className: string;
+  children: ReactElement | string;
+}) {
+  return (
+    <Tooltip content={children} relationship="description" withArrow>
+      <span className={className} tabIndex={0} aria-label={label}>
+        <Info16Regular />
+      </span>
+    </Tooltip>
+  );
 }
 
 const INFRA_LABELS: Record<string, string> = {
@@ -203,15 +236,14 @@ export function CostsPage() {
   const chartMonths = useMemo(() => [...(data?.by_month || [])].reverse(), [data]);
 
   // End-of-month projection for the current (most recent) month. Open customers
-  // are linearly extrapolated from their current per-active-day rate to the full
-  // month; closed/suspended ones are frozen at their current cost.
+  // add the full calendar days after today at their current per-active-day rate;
+  // today is already included in active_days. Closed/suspended ones are frozen.
   const projection = useMemo(() => {
     const cur = data?.by_month?.[0];
     if (!cur) return null;
     const daysInMonth = cur.days_in_month || 30;
-    // Project the REMAINING days of the month at each customer's current daily
-    // rate and ADD them to what they've already spent (we don't re-scale the
-    // whole month). Remaining days apply only to the current calendar month.
+    // Project only the full days after today. active_days already includes the
+    // current calendar day, so this covers each eligible day exactly once.
     const now = new Date();
     const curMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
     const remainingDays =
@@ -229,7 +261,11 @@ export function CostsPage() {
         open,
         current_total: c.total_cost,
         current_infra: c.infra_cost,
+        current_ai: Math.max(0, c.total_cost - c.infra_cost),
+        active_days: activeDays,
+        added_days: addDays,
         daily_rate: dailyTotal,
+        projected_active_days: Math.min(daysInMonth, activeDays + addDays),
         projected_total: c.total_cost + dailyTotal * addDays,
         projected_infra: c.infra_cost + dailyInfra * addDays,
       };
@@ -487,20 +523,53 @@ export function CostsPage() {
             <Card className={styles.monthCard} style={{ order: 4 }}>
               <div className={styles.monthHead}>
                 <Text weight="semibold">End-of-month projection · {projection.month}</Text>
-                <Text weight="semibold">{money(projection.projectedTotal, currency)}</Text>
+                <span className={styles.totalWithInfo}>
+                  <Text weight="semibold">{money(projection.projectedTotal, currency)}</Text>
+                  <FormulaInfo
+                    label="How the projected month total is calculated"
+                    className={styles.infoTrigger}
+                  >
+                    <div>
+                      Sum of every customer's projected EOM total:
+                      <br />
+                      current attributed total + (daily rate × remaining eligible days).
+                    </div>
+                  </FormulaInfo>
+                </span>
               </div>
               <Text size={200} italic>
                 Open customers: what they've spent so far <b>plus</b> the {projection.remainingDays}{" "}
-                day(s) left in the month at their current daily rate; suspended/closed ones are frozen
-                at today's cost.
+                full day(s) after today at their current daily rate. The current day is already included
+                in active days; days before customer creation are never projected. Suspended/closed
+                customers are frozen at today's cost.
               </Text>
               <Table size="small">
                 <TableHeader>
                   <TableRow>
                     <TableHeaderCell className={styles.nameCell}>Customer</TableHeaderCell>
                     <TableHeaderCell>Status</TableHeaderCell>
-                    <TableHeaderCell>Current total</TableHeaderCell>
-                    <TableHeaderCell>Projected EOM</TableHeaderCell>
+                    <TableHeaderCell>Projected active days</TableHeaderCell>
+                    <TableHeaderCell>
+                      <span className={styles.totalWithInfo}>
+                        Current total
+                        <FormulaInfo label="Current total formula" className={styles.infoTrigger}>
+                          Infrastructure attributed so far + actual LLM chat + embeddings + agentic
+                          retrieval costs.
+                        </FormulaInfo>
+                      </span>
+                    </TableHeaderCell>
+                    <TableHeaderCell>
+                      <span className={styles.totalWithInfo}>
+                        Projected EOM
+                        <FormulaInfo
+                          label="Projected end-of-month formula"
+                          className={styles.infoTrigger}
+                        >
+                          Current total + (current total ÷ active days × full eligible days after
+                          today). Suspended and closed customers add zero future days.
+                        </FormulaInfo>
+                      </span>
+                    </TableHeaderCell>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -512,9 +581,37 @@ export function CostsPage() {
                           {statusOf(r.org_id).label}
                         </Badge>
                       </TableCell>
-                      <TableCell>{money(r.current_total, currency)}</TableCell>
                       <TableCell>
-                        <Text weight="semibold">{money(r.projected_total, currency)}</Text>
+                        {r.projected_active_days} / {projection.daysInMonth}
+                      </TableCell>
+                      <TableCell>
+                        <span className={styles.totalWithInfo}>
+                          {money(r.current_total, currency)}
+                          <FormulaInfo
+                            label={`${r.name} current total formula`}
+                            className={styles.infoTrigger}
+                          >
+                            <div>
+                              {money(r.current_infra, currency)} infrastructure +{" "}
+                              {smallMoney(r.current_ai, currency)} actual AI usage
+                            </div>
+                          </FormulaInfo>
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={styles.totalWithInfo}>
+                          <Text weight="semibold">{money(r.projected_total, currency)}</Text>
+                          <FormulaInfo
+                            label={`${r.name} projected total formula`}
+                            className={styles.infoTrigger}
+                          >
+                            <div>
+                              {money(r.current_total, currency)} + ({money(r.current_total, currency)} ÷{" "}
+                              {r.active_days} active day(s) × {r.added_days} future day(s))
+                              <br />= {money(r.projected_total, currency)}
+                            </div>
+                          </FormulaInfo>
+                        </span>
                         {r.open && r.projected_total > r.current_total && (
                           <Text size={100} style={{ color: tokens.colorPaletteGreenForeground1 }}>
                             {" "}(+{money(r.projected_total - r.current_total, currency)})
@@ -550,6 +647,28 @@ export function CostsPage() {
                   {projection.gap >= 0.005 ? `-${money(projection.gap, currency)}` : money(0, currency)}
                 </Text>
               </div>
+
+              <div className={styles.projectionExplainer}>
+                <Text weight="semibold">How to read coverage</Text>
+                <ul style={{ margin: "8px 0 0", paddingLeft: "20px" }}>
+                  <li>
+                    Each customer's daily rate is its current attributed total divided by its active
+                    days. Open customers add that rate for every full eligible day after today.
+                  </li>
+                  <li>
+                    Days before customer creation are excluded. Suspended or closed customers keep only
+                    the cost accumulated up to their suspension or deletion date.
+                  </li>
+                  <li>
+                    Infrastructure is fully covered only when weighted customer shares, after active-day
+                    pro-ration, recover the provider's complete fixed monthly platform cost.
+                  </li>
+                  <li>
+                    A share reduced by late creation, suspension, or deletion is not redistributed to
+                    other customers; it remains uncovered provider capacity.
+                  </li>
+                </ul>
+              </div>
             </Card>
           )}
 
@@ -557,32 +676,56 @@ export function CostsPage() {
             <Card key={m.month} className={styles.monthCard} style={{ order: 2 }}>
               <div
                 className={styles.monthHead}
-                role="button"
-                tabIndex={0}
-                style={{ cursor: "pointer" }}
-                onClick={() => toggleMonth(m.month)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    toggleMonth(m.month);
-                  }
-                }}
               >
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+                  onClick={() => toggleMonth(m.month)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      toggleMonth(m.month);
+                    }
+                  }}
+                >
                   {isMonthOpen(m.month) ? <ChevronDown20Regular /> : <ChevronRight20Regular />}
                   <Text weight="semibold">{m.month}</Text>
                 </div>
-                <Text weight="semibold">{money(m.total_cost, currency)}</Text>
+                <span className={styles.totalWithInfo}>
+                  <Text weight="semibold">{money(m.total_cost, currency)}</Text>
+                  <FormulaInfo
+                    label={`${m.month} attributed total formula`}
+                    className={styles.infoTrigger}
+                  >
+                    <div>
+                      <b>Attributed customer total</b>
+                      <br />
+                      {money(m.infra_cost, currency)} infrastructure +{" "}
+                      {smallMoney(m.token_cost, currency)} LLM chat +{" "}
+                      {smallMoney(m.embedding_cost ?? 0, currency)} embeddings +{" "}
+                      {smallMoney(m.agentic_cost ?? 0, currency)} agentic retrieval
+                      <br />= {money(m.total_cost, currency)}
+                      <br />
+                      <br />
+                      Provider spend: {money(providerSpend(m), currency)} (full monthly platform +
+                      actual AI usage).
+                    </div>
+                  </FormulaInfo>
+                </span>
               </div>
               {isMonthOpen(m.month) && (
                 <>
                   {m.weights && (
                     <Text size={200} italic>
-                      Fixed shared-platform cost split by tokens {Math.round(m.weights.tokens * 100)}% ·
-                      calls {Math.round(m.weights.calls * 100)}% · documents{" "}
-                      {Math.round(m.weights.documents * 100)}% (then pro-rated by each customer's active
-                      days). AI usage — tokens, embeddings, agentic — is billed directly to the customer,
-                      not weighted.
+                      Fixed shared-platform cost attributed across every customer active in the month,
+                      including customers with no AI calls. The usage weight is tokens{" "}
+                      {Math.round(m.weights.tokens * 100)}% ·
+                      calls {Math.round(m.weights.calls * 100)}% · indexed footprint{" "}
+                      {Math.round(m.weights.documents * 100)}% (documents, with one minimum unit for the
+                      customer's Search index), then pro-rated by active days. The attributed totals may
+                      be lower than the provider's full monthly Azure bill; AI usage — tokens, embeddings,
+                      agentic — is charged directly to the customer, not weighted.
                     </Text>
                   )}
                   <Table size="small">

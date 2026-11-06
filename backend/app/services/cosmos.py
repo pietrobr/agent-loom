@@ -307,6 +307,24 @@ def _active_days_in_month(periods: List[Dict[str, Any]], month: str, now: dateti
     return min(len(days), total_days)
 
 
+def _active_months(periods: List[Dict[str, Any]], now: datetime) -> set[str]:
+    """Calendar months intersected by at least one active lifecycle period."""
+    months: set[str] = set()
+    for period in periods or []:
+        start = _parse_iso(period.get("start"))
+        if not start:
+            continue
+        end = _parse_iso(period.get("end")) or now
+        cursor = datetime(start.year, start.month, 1, tzinfo=timezone.utc)
+        while cursor < end:
+            months.add(cursor.strftime("%Y-%m"))
+            if cursor.month == 12:
+                cursor = datetime(cursor.year + 1, 1, 1, tzinfo=timezone.utc)
+            else:
+                cursor = datetime(cursor.year, cursor.month + 1, 1, tzinfo=timezone.utc)
+    return months
+
+
 def cost_summary(currency: str = "USD") -> Dict[str, Any]:
     """Attribute the total Azure cost of the solution across customers/months.
 
@@ -332,6 +350,7 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
     agentic_events = [r for r in raw if r.get("kind") == "agentic"]
     lifecycles = [r for r in raw if r.get("kind") == _LIFECYCLE_ID or r.get("id") == _LIFECYCLE_ID]
     periods_by_org = {lc.get("org_id"): (lc.get("periods") or []) for lc in lifecycles}
+    lifecycle_name_by_org = {lc.get("org_id"): lc.get("name") for lc in lifecycles}
     instances = list(_container("instances").read_all_items())
     tenants = list(_container("tenants").read_all_items())
 
@@ -369,8 +388,31 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
             if not p.get("end"):
                 p["end"] = end or p.get("start")
 
-    # month -> org_id -> aggregate
+    # month -> org_id -> aggregate. Seed this from lifecycle periods, not usage,
+    # so enabled customers share fixed infrastructure even in zero-AI months.
     months: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    def _bucket(org: str) -> Dict[str, Any]:
+        return {
+            "org_id": org,
+            "name": name_by_org.get(org) or lifecycle_name_by_org.get(org) or org,
+            "tokens": 0,
+            "calls": 0,
+            "indices": 1,
+            "documents": 0,
+            "token_cost": 0.0,
+            "embedding_tokens": 0,
+            "embedding_cost": 0.0,
+            "agentic_tokens": 0,
+            "agentic_cost": 0.0,
+        }
+
+    for org, periods in periods_by_org.items():
+        if not org:
+            continue
+        for month in _active_months(periods, now):
+            months.setdefault(month, {}).setdefault(org, _bucket(org))
+
     # (org, month) -> set of calendar days with activity (event-based fallback).
     event_days: Dict[tuple, set] = {}
     for e in events:
@@ -392,22 +434,7 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         if ev_dt:
             event_days.setdefault((org, month), set()).add(ev_dt.date())
 
-        bucket = months.setdefault(month, {}).setdefault(
-            org,
-            {
-                "org_id": org,
-                "name": name_by_org.get(org, org),
-                "tokens": 0,
-                "calls": 0,
-                "indices": 1,
-                "documents": 0,
-                "token_cost": 0.0,
-                "embedding_tokens": 0,
-                "embedding_cost": 0.0,
-                "agentic_tokens": 0,
-                "agentic_cost": 0.0,
-            },
-        )
+        bucket = months.setdefault(month, {}).setdefault(org, _bucket(org))
         bucket["tokens"] += tot
         bucket["calls"] += 1
         bucket["token_cost"] += cost
@@ -423,22 +450,7 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         etok = int(e.get("embedding_tokens", 0) or e.get("total_tokens", 0) or 0)
         if etok <= 0:
             continue
-        bucket = months.setdefault(month, {}).setdefault(
-            org,
-            {
-                "org_id": org,
-                "name": name_by_org.get(org, org),
-                "tokens": 0,
-                "calls": 0,
-                "indices": 1,
-                "documents": 0,
-                "token_cost": 0.0,
-                "embedding_tokens": 0,
-                "embedding_cost": 0.0,
-                "agentic_tokens": 0,
-                "agentic_cost": 0.0,
-            },
-        )
+        bucket = months.setdefault(month, {}).setdefault(org, _bucket(org))
         bucket["embedding_tokens"] += etok
         bucket["embedding_cost"] += pricing.embedding_cost(etok, currency)
 
@@ -454,22 +466,7 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         if atok <= 0:
             continue
         model = model_by_instance.get((org, e.get("instance_id")))
-        bucket = months.setdefault(month, {}).setdefault(
-            org,
-            {
-                "org_id": org,
-                "name": name_by_org.get(org, org),
-                "tokens": 0,
-                "calls": 0,
-                "indices": 1,
-                "documents": 0,
-                "token_cost": 0.0,
-                "embedding_tokens": 0,
-                "embedding_cost": 0.0,
-                "agentic_tokens": 0,
-                "agentic_cost": 0.0,
-            },
-        )
+        bucket = months.setdefault(month, {}).setdefault(org, _bucket(org))
         bucket["agentic_tokens"] += atok
         bucket["agentic_cost"] += pricing.token_cost(model, atok, 0, currency)
 
@@ -513,18 +510,22 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
 
         sum_tokens = sum(c["tokens"] for c in clients)
         sum_calls = sum(c["calls"] for c in clients)
-        sum_docs = sum(c["documents"] for c in clients)
+        # Every active customer owns a Search index even when it contains no
+        # documents. Count that empty index as one footprint unit so a zero-AI,
+        # zero-document customer still participates in shared infrastructure.
+        document_units = [max(1, c["documents"]) for c in clients]
+        sum_docs = sum(document_units)
 
         # Per-client weight; falls back to an equal share if a dimension is empty.
         def _frac(value: int, total: int) -> float:
             return (value / total) if total > 0 else (1.0 / active)
 
         weights = []
-        for c in clients:
+        for c, doc_units in zip(clients, document_units):
             w = (
                 W_TOKENS * _frac(c["tokens"], sum_tokens)
                 + W_CALLS * _frac(c["calls"], sum_calls)
-                + W_DOCS * _frac(c["documents"], sum_docs)
+                + W_DOCS * _frac(doc_units, sum_docs)
             )
             weights.append(w)
         weight_total = sum(weights) or 1.0
@@ -748,5 +749,3 @@ def query_traces(
 
 def get_trace(org_id: str, trace_id: str) -> Optional[Dict[str, Any]]:
     return read(TRACES_CONTAINER, org_id, trace_id)
-
-

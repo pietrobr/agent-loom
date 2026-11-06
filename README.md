@@ -524,10 +524,34 @@ Search knowledge source `ks-{org}` + knowledge base `kbagent-{org}`).
 
 ### 5. Track per-customer costs
 
-**SaaS Console → Costs** shows the monthly Azure spend split per customer: the fixed
-shared platform plus variable AI usage (LLM chat tokens, embeddings, agentic
-planning). Switch the display currency (USD/EUR) and read the end-of-month
-projection. Prices live in `config/azure_prices.json` (and
+**SaaS Console → Costs** attributes a share of the monthly Azure spend to each
+customer; it is not a statement that the complete provider invoice is always
+recovered from customers. Every customer whose lifecycle was active during a
+month participates in the fixed shared-platform allocation, including customers
+with no AI calls in that month. The allocation weight is 60% chat tokens, 20%
+calls, and 20% indexed footprint. The footprint uses the current document count
+with a minimum of one unit for the customer's Search index, so even an empty
+active customer receives a non-zero infrastructure share. The resulting share
+is then pro-rated by the number of calendar days the customer was enabled during
+that month.
+Variable AI usage (LLM chat tokens, embeddings, and agentic planning) is charged
+directly to the customer that generated it.
+
+Because the provider pays the full shared platform for the whole month while
+customer shares are pro-rated, the sum attributed to customers can be lower than
+the provider's actual Azure cost. The Costs chart shows both values and the
+uncovered platform capacity. Its end-of-month projection adds only the full days
+after today at each open customer's current per-active-day rate: today is already
+included in active days, days before customer creation are not projected, and
+suspended or deleted customers are frozen at their current attributed cost.
+The projection reports platform coverage separately: a month is fully covered
+only when weighted customer shares, after active-day pro-ration, recover the
+provider's complete fixed monthly platform cost. Weight reduced by late customer
+creation, suspension, or deletion is not redistributed to other customers and
+remains uncovered provider capacity.
+
+Switch the display currency (USD/EUR). Prices live in
+`config/azure_prices.json` (and
 `config/azure_prices_<cur>.json` per currency, refreshable with
 `scripts/fetch_azure_prices.py`) and are loaded by
 `backend/app/services/pricing.py`.
