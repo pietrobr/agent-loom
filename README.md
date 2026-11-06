@@ -887,6 +887,92 @@ in the tenant recycle bin for ~30 days.
 
 ---
 
+## Temporarily disabling dev access
+
+Use [scripts/dev_off.ps1](scripts/dev_off.ps1) and
+[scripts/dev_on.ps1](scripts/dev_on.ps1) from any PowerShell terminal, VS Code,
+Windows Task Scheduler or an automation runner. They require **PowerShell 7+**
+and **Azure CLI**, but not VS Code or azd.
+
+The scripts only target **`rg-agentloom-dev`** and its `admin-designer`,
+`customer-webapp` and `backend` Container Apps. The default subscription is
+`35d1af6c-ac5f-48f0-a272-d71e37a5fd65`; use `-SubscriptionId` to select another
+subscription containing the same dev environment. Resource IDs and
+`azd-env-name=agentloom-dev` tags are checked before any update. Prod cannot be
+selected through a resource-group or environment argument.
+
+```powershell
+# Sign in once with an identity authorized for the dev resource group.
+az login
+
+# Preview: reads Azure configuration, but writes nothing and changes no ingress.
+pwsh -NoProfile -File .\scripts\dev_off.ps1 -WhatIf
+
+# Disable public ingress for both frontends and the backend.
+pwsh -NoProfile -File .\scripts\dev_off.ps1
+
+# Report the current state without changing anything.
+pwsh -NoProfile -File .\scripts\dev_access.ps1 -Action Status
+
+# Restore the original ingress and check the frontend URLs and /healthz.
+pwsh -NoProfile -File .\scripts\dev_on.ps1
+```
+
+**OFF** saves the complete original ingress configuration in
+`.azure/dev-access-state.json` **before** disabling ingress. This snapshot contains
+ports, traffic settings, IP restrictions and related ingress configuration, not
+application secrets. Azure is checked to confirm all three ingress configurations
+are disabled. Repeating OFF keeps the original snapshot rather than replacing it
+with disabled settings.
+
+**ON** restores only the saved ingress, preserving images, environment variables,
+identities and other application settings. It checks the restored configuration
+and probes each public endpoint; HTTP 401/403 is accepted when existing
+authentication or access restrictions protect a reachable app. The verification
+timeout defaults to 180 seconds per check and can be changed with
+`-VerificationTimeoutSeconds`. ON refuses to guess settings without a valid
+snapshot, and refuses a stale restore if an app has been redeployed since OFF.
+After a successful ON, the next OFF captures fresh ingress settings.
+
+For scheduling or execution from a different working directory, use absolute
+paths and keep the **same persistent snapshot path** for both commands:
+
+```powershell
+pwsh -NoProfile -NonInteractive -File C:\src\agent-loom\scripts\dev_off.ps1 `
+  -StatePath C:\dev-state\agentloom-dev.json -Confirm:$false
+
+pwsh -NoProfile -NonInteractive -File C:\src\agent-loom\scripts\dev_on.ps1 `
+  -StatePath C:\dev-state\agentloom-dev.json -Confirm:$false
+```
+
+Run scheduled jobs with an Azure-authenticated identity authorized to read/write
+the dev Container Apps, for example Contributor scoped **only** to the dev resource
+group. A different scheduler account does not inherit your personal Azure CLI
+login. Azure-hosted automation can use managed identity; other runners should
+use an appropriately protected service-principal/federated login, not credentials
+in source. Azure CLI failures and verification timeouts terminate the scripts with
+an error/non-zero process exit.
+
+**Operational limits:**
+
+- The switch controls **cloud ingress**, not authentication. ON restores the
+  previous dev authentication, including anonymous demo-token issuance if enabled.
+- OFF does **not** delete data or resources, stop replicas, change scaling, or
+  eliminate Search/Cosmos/ACR/storage costs. In-flight requests may finish.
+- Local Vite previews and local backend processes are not affected.
+- Keep the snapshot until ON has completed. Partial failures are explicit; run
+  Status and retry with the same snapshot. No automatic rollback reopens dev.
+- A file lock prevents concurrent runs using the same snapshot on one host.
+  Serialize jobs across machines and share the snapshot securely if needed.
+- Do not deploy/provision while dev is OFF: a deployment can re-enable ingress,
+  and a new revision invalidates the saved restore. Restore dev before deploying.
+
+Run the isolated script tests without Azure access or Pester:
+
+```powershell
+pwsh -NoProfile -File .\scripts\tests\dev_access.Tests.ps1
+```
+
 ## Local development
 
 You can run all three apps (backend + the two frontends) **on your machine** so
