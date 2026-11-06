@@ -43,6 +43,14 @@ own no infrastructure.
   agentic planning) down per customer, with an end-of-month projection. The
   **Application Insights** line item is counted only while trace mirroring is
   enabled (see below), so the breakdown reflects the saving when it's off.
+- **Monthly token allowance in Metering**: each customer shows its current UTC
+  month's chat tokens used, configured quota and remaining tokens, with a subtle
+  progress bar (warning from 80%, reached/exceeded at 100%). Selecting a customer
+  opens the same allowance in detail; historical usage charts remain all-time.
+  Embeddings and agentic retrieval do not count toward the chat quota. A quota
+  of zero or less is unlimited. The displayed monthly count shares the backend
+  calculation used to enforce the allowance; reaching it still blocks new chat
+  requests with HTTP 429.
 - **Distributed tracing console**: the admin **Tracing** tab records the full
   round trip of every backend request — the ordered spans (Cosmos, Search,
   agentic retrieval, Foundry), their timings, structured events and errors — and
@@ -555,6 +563,19 @@ Switch the display currency (USD/EUR). Prices live in
 `config/azure_prices_<cur>.json` per currency, refreshable with
 `scripts/fetch_azure_prices.py`) and are loaded by
 `backend/app/services/pricing.py`.
+
+The trash icon in a customer cost row is available **only for deleted customers**,
+not active or suspended ones. Its confirmation permanently deletes all of that
+customer's Metering records (chat, embeddings and agentic usage) and lifecycle
+history across **all months**. The customer disappears from Costs; totals, remaining
+customers' weighted infrastructure shares and displayed provider spend are recalculated
+from the remaining data. This does not change Azure charges already incurred.
+Existing Tracing records are untouched and retain their normal retention policy
+(14 days by default). The admin-only `DELETE /v1/admin/costs/{org_id}` endpoint
+rechecks that the customer and its instances no longer exist, then removes only its
+Metering partition in transactional batches of at most 100 records. Partial
+multi-batch failures are reported explicitly and can be retried; the lifecycle
+record is kept until the final batch. The action is also recorded through Tracing.
 
 ### 6. Production identity — Entra ID (admins) + Entra External ID (customers)
 

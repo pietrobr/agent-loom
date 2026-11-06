@@ -93,9 +93,16 @@ def upsert_customer(payload: Dict[str, Any], _: Principal = Depends(require_admi
 
 @router.get("/customers/{org_id}/metering")
 def customer_metering(org_id: str, _: Principal = Depends(require_admin)) -> Dict[str, Any]:
-    if not cosmos.get_tenant(org_id):
+    tenant = cosmos.get_tenant(org_id)
+    if not tenant:
         raise HTTPException(404, "unknown customer")
-    return cosmos.metering_summary(org_id)
+    summary = cosmos.metering_summary(org_id)
+    quota = int(tenant.get("monthly_token_quota", 0) or 0)
+    return {
+        **summary,
+        "monthly_token_quota": quota,
+        "remaining_tokens": max(0, quota - summary["month_tokens"]) if quota > 0 else None,
+    }
 
 
 @router.get("/costs")
@@ -113,6 +120,37 @@ def solution_costs(
     if cur not in pricing.SUPPORTED_CURRENCIES:
         cur = "USD"
     return cosmos.cost_summary(cur)
+
+
+@router.delete("/costs/{org_id}")
+def delete_customer_cost_history(
+    org_id: str, _: Principal = Depends(require_admin)
+) -> Dict[str, Any]:
+    """Permanently remove a deleted customer's metering and cost history."""
+    if org_id == SYSTEM_ORG:
+        raise HTTPException(400, "system history cannot be deleted")
+    try:
+        if cosmos.get_tenant(org_id) is not None:
+            raise HTTPException(409, "delete the customer before removing its cost and metering history")
+        if cosmos.list_instances(org_id):
+            raise HTTPException(409, "customer still has attached instances; its history cannot be deleted")
+        with tracing.span("cosmos.delete_metering_history", org_id=org_id):
+            removed = cosmos.delete_metering_history(org_id)
+            tracing.set_attr(deleted_records=removed)
+    except AzureError as exc:
+        log.exception("Failed to delete cost and metering history for customer %s", org_id)
+        raise HTTPException(
+            503,
+            "Unable to delete all cost and metering history. Some records may already "
+            "have been removed; refresh and retry. Tracing records were not deleted.",
+        ) from exc
+    if not removed:
+        raise HTTPException(404, "no cost or metering history found for this customer")
+    tracing.event(
+        "Customer cost and metering history deleted", org_id=org_id, deleted_records=removed
+    )
+    log.info("Deleted %s cost and metering records for customer %s", removed, org_id)
+    return {"status": "deleted", "org_id": org_id, "deleted_records": removed}
 
 
 @router.post("/reindex")

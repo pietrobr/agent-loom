@@ -13,11 +13,13 @@ import {
   TableBody,
   TableCell,
   Tooltip,
+  Badge,
+  ProgressBar,
   makeStyles,
   tokens,
 } from "@fluentui/react-components";
 import { Search24Regular } from "@fluentui/react-icons";
-import { api, Metering, MeteringDay, Tenant, Instance } from "../api";
+import { api, CustomerMetering, Metering, MeteringDay, Tenant, Instance } from "../api";
 
 const CUSTOMER_PAGE_SIZE = 8;
 const ALL_ORG = "__all__";
@@ -28,6 +30,9 @@ const useStyles = makeStyles({
   wrap: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "860px" },
   stats: { display: "flex", gap: "16px" },
   stat: { padding: "16px", flexGrow: 1, textAlign: "center" },
+  quotaSummary: { display: "flex", flexDirection: "column", gap: "4px", minWidth: "220px" },
+  quotaLine: { display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" },
+  quotaCard: { padding: "16px", display: "flex", flexDirection: "column", gap: "12px" },
   customerList: {
     display: "flex",
     flexDirection: "column",
@@ -40,6 +45,7 @@ const useStyles = makeStyles({
     justifyContent: "space-between",
     alignItems: "center",
     gap: "8px",
+    flexWrap: "wrap",
     padding: "8px 12px",
     cursor: "pointer",
     borderBottom: `1px solid ${tokens.colorNeutralStroke3}`,
@@ -105,6 +111,55 @@ interface Bucket {
   calls: number;
 }
 
+function QuotaUsage({ name, metering, loading }: {
+  name: string;
+  metering?: CustomerMetering;
+  loading: boolean;
+}) {
+  const styles = useStyles();
+  if (!metering) {
+    return <Text size={200}>{loading ? "Loading monthly usage..." : "Monthly usage unavailable"}</Text>;
+  }
+  const used = metering.month_tokens;
+  const quota = metering.monthly_token_quota;
+  if (!Number.isFinite(used) || !Number.isFinite(quota) || typeof metering.month !== "string") {
+    return <Text size={200}>Monthly quota unavailable</Text>;
+  }
+  if (quota <= 0) {
+    return (
+      <div className={styles.quotaSummary}>
+        <Text size={200}>{metering.month} (UTC): {used.toLocaleString()} chat tokens used</Text>
+        <Badge appearance="tint" color="informative">Unlimited monthly quota</Badge>
+      </div>
+    );
+  }
+  const ratio = used / quota;
+  const color = ratio >= 1 ? "error" : ratio >= 0.8 ? "warning" : "success";
+  const label = ratio > 1 ? "Quota exceeded" : ratio >= 1 ? "Quota reached" : ratio >= 0.8 ? "Near quota" : "Within quota";
+  const remaining = metering.remaining_tokens;
+  if (typeof remaining !== "number" || !Number.isFinite(remaining)) {
+    return <Text size={200}>Monthly quota unavailable</Text>;
+  }
+  return (
+    <div className={styles.quotaSummary}>
+      <div className={styles.quotaLine}>
+        <Text size={200} weight="semibold">{remaining.toLocaleString()} tokens remaining</Text>
+        <Badge appearance="tint" color={color === "error" ? "danger" : color}>{label}</Badge>
+      </div>
+      <ProgressBar
+        value={Math.min(1, Math.max(0, ratio))}
+        color={color}
+        aria-label={`${name} monthly token quota`}
+        aria-valuetext={`${used.toLocaleString()} of ${quota.toLocaleString()} tokens used; ${remaining.toLocaleString()} remaining`}
+      />
+      <Text size={100}>
+        {metering.month} (UTC): {used.toLocaleString()} / {quota.toLocaleString()} used ({Math.floor(ratio * 100)}%)
+        {used > quota ? `; ${(used - quota).toLocaleString()} over quota` : ""}
+      </Text>
+    </div>
+  );
+}
+
 /** ISO week key (YYYY-Www) for a Date in UTC. */
 function isoWeekKey(d: Date): string {
   const date = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -137,6 +192,7 @@ export function MeteringPage() {
   const [customers, setCustomers] = useState<Tenant[]>([]);
   const [orgId, setOrgId] = useState("");
   const [data, setData] = useState<Metering | null>(null);
+  const [meteringByOrg, setMeteringByOrg] = useState<Record<string, CustomerMetering>>({});
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [granularity, setGranularity] = useState<Granularity>("daily");
@@ -160,19 +216,22 @@ export function MeteringPage() {
 
   useEffect(() => {
     if (!orgId) return;
+    let cancelled = false;
     setLoading(true);
     setErr("");
+    setData(null);
 
     if (orgId === ALL_ORG) {
       // Aggregate every customer's metering into one combined summary.
-      Promise.all(customers.map((c) => api.metering(c.org_id).catch(() => null)))
+      Promise.all(customers.map((c) => api.metering(c.org_id)))
         .then((all) => {
-          const valid = all.filter((m): m is Metering => !!m);
+          if (cancelled) return;
+          setMeteringByOrg(Object.fromEntries(customers.map((c, i) => [c.org_id, all[i]])));
           const byInstance: Record<string, { calls: number; tokens: number }> = {};
           const byDayMap: Record<string, { calls: number; tokens: number }> = {};
           let calls = 0;
           let totalTokens = 0;
-          for (const m of valid) {
+          for (const m of all) {
             calls += m.calls || 0;
             totalTokens += m.total_tokens || 0;
             for (const [k, v] of Object.entries(m.by_instance || {})) {
@@ -191,16 +250,36 @@ export function MeteringPage() {
             .sort((a, b) => a.date.localeCompare(b.date));
           setData({ calls, total_tokens: totalTokens, by_instance: byInstance, by_day });
         })
-        .catch((e) => setErr(e.message))
-        .finally(() => setLoading(false));
-      return;
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setMeteringByOrg({});
+            setErr(error instanceof Error ? error.message : "Unable to load customer usage.");
+          }
+        })
+        .finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
     }
 
     api
       .metering(orgId)
-      .then(setData)
-      .catch((e) => setErr(e.message))
-      .finally(() => setLoading(false));
+      .then((summary) => {
+        if (!cancelled) {
+          setData(summary);
+          setMeteringByOrg((previous) => ({ ...previous, [orgId]: summary }));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setMeteringByOrg((previous) => {
+            const next = { ...previous };
+            delete next[orgId];
+            return next;
+          });
+          setErr(error instanceof Error ? error.message : "Unable to load customer usage.");
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [orgId, customers]);
 
   // Load instance display names so the "Usage by instance" table shows friendly
@@ -280,8 +359,9 @@ export function MeteringPage() {
           >
             <div>
               <Text weight={c.org_id === orgId ? "semibold" : "regular"}>{c.name}</Text>
+              <div><Text size={100}>{c.tier}</Text></div>
             </div>
-            <Text size={100}>{c.tier}</Text>
+            <QuotaUsage name={c.name} metering={meteringByOrg[c.org_id]} loading={loading} />
           </div>
         ))}
         {!pagedCustomers.length && (
@@ -319,13 +399,27 @@ export function MeteringPage() {
 
       {data && (
         <>
+          {orgId !== ALL_ORG && meteringByOrg[orgId] && (
+            <Card className={styles.quotaCard}>
+              <Text weight="semibold">Monthly token allowance</Text>
+              <QuotaUsage
+                name={customers.find((customer) => customer.org_id === orgId)?.name || orgId}
+                metering={meteringByOrg[orgId]}
+                loading={loading}
+              />
+              <Text size={200}>
+                Chat tokens only, using the same count as quota enforcement. Embeddings and
+                agentic retrieval are excluded. The allowance resets each calendar month in UTC.
+              </Text>
+            </Card>
+          )}
           <div className={styles.stats}>
             <Card className={styles.stat}>
               <Text size={700} weight="bold">
                 {data.calls}
               </Text>
               <div>
-                <Text size={200}>total calls</Text>
+                <Text size={200}>all-time calls</Text>
               </div>
             </Card>
             <Card className={styles.stat}>
@@ -333,7 +427,7 @@ export function MeteringPage() {
                 {data.total_tokens.toLocaleString()}
               </Text>
               <div>
-                <Text size={200}>total tokens</Text>
+                <Text size={200}>all-time tokens</Text>
               </div>
             </Card>
           </div>

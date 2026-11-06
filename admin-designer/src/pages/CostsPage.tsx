@@ -16,9 +16,17 @@ import {
   Dropdown,
   Option,
   Tooltip,
+  Button,
+  Dialog,
+  DialogTrigger,
+  DialogSurface,
+  DialogTitle,
+  DialogBody,
+  DialogActions,
+  DialogContent,
 } from "@fluentui/react-components";
-import { ChevronDown20Regular, ChevronRight20Regular, Info16Regular } from "@fluentui/react-icons";
-import { api, CostSummary, Tenant } from "../api";
+import { ChevronDown20Regular, ChevronRight20Regular, Delete20Regular, Info16Regular } from "@fluentui/react-icons";
+import { api, CostClient, CostSummary, Tenant } from "../api";
 
 const useStyles = makeStyles({
   wrap: { display: "flex", flexDirection: "column", gap: "16px", maxWidth: "960px" },
@@ -164,6 +172,11 @@ export function CostsPage() {
   const [customers, setCustomers] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [notice, setNotice] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [toDelete, setToDelete] = useState<Pick<CostClient, "org_id" | "name"> | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState("");
   // Which per-month breakdown cards are expanded. Only the most recent month is
   // open by default; older months collapse to just their header to save space.
   const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
@@ -177,17 +190,43 @@ export function CostsPage() {
   });
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    api
-      .costs(costCurrency)
-      .then(setData)
-      .catch((e) => setErr(e.message))
-      .finally(() => setLoading(false));
-  }, [costCurrency]);
+    setErr("");
+    Promise.all([api.costs(costCurrency), api.listCustomers()])
+      .then(([summary, tenants]) => {
+        if (!cancelled) {
+          setData(summary);
+          setCustomers(tenants);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setErr(error instanceof Error ? error.message : "Unable to load costs and customers.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [costCurrency, refreshKey]);
 
-  useEffect(() => {
-    api.listCustomers().then(setCustomers).catch(() => {});
-  }, []);
+  async function confirmDeleteHistory() {
+    if (!toDelete || deleting) return;
+    setDeleting(true);
+    setDeleteErr("");
+    setNotice("");
+    try {
+      await api.deleteCostHistory(toDelete.org_id);
+      setNotice(`All cost and metering history for ${toDelete.name} was deleted. Tracing was preserved.`);
+      setToDelete(null);
+    } catch (error: unknown) {
+      setDeleteErr(error instanceof Error ? error.message : "Unable to delete cost and metering history.");
+    } finally {
+      setDeleting(false);
+      setRefreshKey((key) => key + 1);
+    }
+  }
 
   const changeCurrency = (c: string) => {
     setCostCurrency(c);
@@ -324,6 +363,7 @@ export function CostsPage() {
           <Text size={200}>Currency</Text>
           <Dropdown
             aria-label="Display currency"
+            disabled={deleting}
             style={{ minWidth: "96px" }}
             selectedOptions={[costCurrency]}
             value={costCurrency}
@@ -340,6 +380,7 @@ export function CostsPage() {
 
       {loading && <Spinner label="Loading…" />}
       {err && <MessageBar intent="error">{err}</MessageBar>}
+      {notice && <MessageBar intent="success">{notice}</MessageBar>}
 
       {data && (
         <>
@@ -742,6 +783,7 @@ export function CostsPage() {
                         <TableHeaderCell>Agentic</TableHeaderCell>
                         <TableHeaderCell>Infra cost</TableHeaderCell>
                         <TableHeaderCell>Total</TableHeaderCell>
+                        <TableHeaderCell>Actions</TableHeaderCell>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -751,8 +793,8 @@ export function CostsPage() {
                             <div>
                               <Text>{c.name}</Text>
                               <div>
-                                <Badge appearance="filled" color={statusOf(c.org_id).color}>
-                                  {statusOf(c.org_id).label}
+                                <Badge appearance="filled" color={c.is_deleted ? "danger" : statusOf(c.org_id).color}>
+                                  {c.is_deleted ? "Deleted" : statusOf(c.org_id).label}
                                 </Badge>
                               </div>
                             </div>
@@ -776,6 +818,22 @@ export function CostsPage() {
                           <TableCell>
                             <Text weight="semibold">{money(c.total_cost, currency)}</Text>
                           </TableCell>
+                          <TableCell>
+                            {c.is_deleted === true && (
+                              <Tooltip content="Delete all cost and metering history" relationship="label">
+                                <Button
+                                  appearance="subtle"
+                                  icon={<Delete20Regular />}
+                                  aria-label={`Delete all cost and metering history for ${c.name}`}
+                                  disabled={deleting || loading}
+                                  onClick={() => {
+                                    setDeleteErr("");
+                                    setToDelete({ org_id: c.org_id, name: c.name });
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -792,6 +850,52 @@ export function CostsPage() {
           )}
         </>
       )}
+      <Dialog
+        open={!!toDelete}
+        onOpenChange={(_, state) => {
+          if (!state.open && !deleting) {
+            setToDelete(null);
+            setDeleteErr("");
+          }
+        }}
+      >
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>Delete all cost and metering history?</DialogTitle>
+            <DialogContent>
+              <Text>
+                Permanently remove all history for <strong>{toDelete?.name}</strong>{" "}
+                (<code>{toDelete?.org_id}</code>), an already-deleted customer.
+              </Text>
+              <ul>
+                <li>
+                  All Metering records (chat, embeddings and agentic retrieval), lifecycle
+                  records and cost history are deleted across every month, not just this row.
+                </li>
+                <li>
+                  Monthly totals, shared-infrastructure shares for remaining customers and
+                  displayed provider spend are recalculated from the remaining history.
+                  Azure charges already incurred are not reduced.
+                </li>
+                <li>
+                  Existing Tracing records are not deleted; their normal retention policy
+                  still applies.
+                </li>
+              </ul>
+              <Text weight="semibold">This action cannot be undone.</Text>
+              {deleteErr && <MessageBar intent="error">{deleteErr}</MessageBar>}
+            </DialogContent>
+            <DialogActions>
+              <DialogTrigger disableButtonEnhancement>
+                <Button appearance="secondary" disabled={deleting}>Cancel</Button>
+              </DialogTrigger>
+              <Button appearance="primary" onClick={confirmDeleteHistory} disabled={deleting}>
+                {deleting ? <Spinner size="tiny" /> : "Delete history"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
     </div>
   );
 }

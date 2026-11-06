@@ -191,7 +191,22 @@ def log_metering(event: Dict[str, Any]) -> None:
     upsert("metering", event["org_id"], event)
 
 
+def delete_metering_history(org_id: str) -> int:
+    """Delete all metering and lifecycle records in this customer's partition."""
+    rows = query("metering", org_id, "SELECT c.id FROM c")
+    # Keep the lifecycle until the final batch so failed purges remain retryable.
+    rows.sort(key=lambda row: row["id"] == _LIFECYCLE_ID)
+    container = _container("metering")
+    for start in range(0, len(rows), 100):
+        container.execute_item_batch(
+            batch_operations=[("delete", (row["id"],)) for row in rows[start:start + 100]],
+            partition_key=org_id,
+        )
+    return len(rows)
+
+
 def metering_summary(org_id: str) -> Dict[str, Any]:
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
     # SELECT * so each document keeps its system `_ts` (epoch seconds), which we
     # use as a timestamp fallback for older events logged without an ISO `ts`.
     rows = query("metering", org_id, "SELECT * FROM c")
@@ -231,6 +246,8 @@ def metering_summary(org_id: str) -> Dict[str, Any]:
         "total_tokens": total,
         "by_instance": by_instance,
         "by_day": by_day,
+        "month": month,
+        "month_tokens": _monthly_chat_tokens(rows, month),
     }
 
 
@@ -244,7 +261,10 @@ def month_token_usage(org_id: str, month: Optional[str] = None) -> int:
     """
     if month is None:
         month = datetime.now(timezone.utc).strftime("%Y-%m")
-    rows = query("metering", org_id, "SELECT * FROM c")
+    return _monthly_chat_tokens(query("metering", org_id, "SELECT * FROM c"), month)
+
+
+def _monthly_chat_tokens(rows: Iterable[Dict[str, Any]], month: str) -> int:
     total = 0
     for r in rows:
         if r.get("id") == _LIFECYCLE_ID or r.get("kind") in (_LIFECYCLE_ID, "embedding", "agentic"):
@@ -396,6 +416,7 @@ def cost_summary(currency: str = "USD") -> Dict[str, Any]:
         return {
             "org_id": org,
             "name": name_by_org.get(org) or lifecycle_name_by_org.get(org) or org,
+            "is_deleted": org not in name_by_org,
             "tokens": 0,
             "calls": 0,
             "indices": 1,

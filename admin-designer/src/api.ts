@@ -134,10 +134,17 @@ export interface Metering {
   by_instance: Record<string, { calls: number; tokens: number }>;
   by_day?: MeteringDay[];
 }
+export interface CustomerMetering extends Metering {
+  month: string;
+  month_tokens: number;
+  monthly_token_quota: number;
+  remaining_tokens: number | null;
+}
 
 export interface CostClient {
   org_id: string;
   name: string;
+  is_deleted: boolean;
   tokens: number;
   calls: number;
   indices: number;
@@ -304,7 +311,7 @@ export const api = {
     ),
 
   metering: (orgId: string) =>
-    req<Metering>(`/v1/admin/customers/${orgId}/metering`),
+    req<CustomerMetering>(`/v1/admin/customers/${orgId}/metering`),
 
   // ---- Customer users (CIAM directory) — production only -------------------
   listCiamUsers: (opts: { search?: string; skipToken?: string; limit?: number } = {}) => {
@@ -342,6 +349,10 @@ export const api = {
 
   costs: (currency?: string) =>
     req<CostSummary>(`/v1/admin/costs${currency ? `?currency=${encodeURIComponent(currency)}` : ""}`),
+  deleteCostHistory: (orgId: string) =>
+    req<{ status: string; org_id: string; deleted_records: number }>(
+      `/v1/admin/costs/${encodeURIComponent(orgId)}`, { method: "DELETE" }
+    ),
 
   // ---- Tracing -------------------------------------------------------------
   getTracingConfig: () => req<TracingConfig>("/v1/admin/tracing/config"),
