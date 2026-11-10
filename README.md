@@ -269,40 +269,42 @@ flowchart LR
     end
 
     subgraph WF["Provider corporate Entra ID (workforce tenant)"]
-      ADAPP["admin-designer app registration<br/>roles: admin"]
+      ADAPP["Entra sign-in<br/>admin-designer app registration<br/>roles: admin"]
     end
 
     subgraph CIAM["Microsoft Entra External ID (CIAM) tenant"]
       direction TB
       UF["Sign-up / sign-in<br/>user flow + app registration"]
-      CLAIM["groups claim<br/>cust-&lt;org_id&gt; security group"]
+      CLAIM["Token groups claim contains group IDs<br/>cust-&lt;org_id&gt; security groups"]
       UF --- CLAIM
     end
 
     subgraph Deploy["AgentLoom — single deployment"]
       direction TB
-      AD["SaaS Console"]
-      FE["customer-webapp"]
-      API["Python / FastAPI backend API<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
-      DA[("org A data<br/>Cosmos pk · kb-orgA")]
-      DB[("org B data<br/>Cosmos pk · kb-orgB")]
-      DC[("org C data<br/>Cosmos pk · kb-orgC")]
+      AD["SaaS Console<br/>SPA running in the admin browser"]
+      FE["Customer Webapp<br/>SPA running in the customer browser"]
+      API["Python / FastAPI backend API<br/>verify token signature, issuer, audience, expiry<br/>check admin role or map groups to org_id<br/>enforce tenant access"]
+      DA[("org A logical data<br/>Cosmos partition · kb-orgA")]
+      DB[("org B logical data<br/>Cosmos partition · kb-orgB")]
+      DC[("org C logical data<br/>Cosmos partition · kb-orgC")]
     end
 
-    OPS --> ADAPP
-    UA --> UF
-    UB --> UF
-    UC --> UF
+    OPS -- "1. Open console URL" --> AD
+    UA -- "1. Open customer webapp URL" --> FE
+    UB -- "1. Open customer webapp URL" --> FE
+    UC -- "1. Open customer webapp URL" --> FE
 
-    ADAPP -- "admin token · roles=admin" --> AD
-    CLAIM -- "access token + groups" --> FE
-    AD -- "admin JWT" --> API
-    FE -- "Bearer JWT" --> API
-    API -. "validate admin tokens via JWKS" .-> WF
-    API -. "validate customer tokens via JWKS" .-> CIAM
-    API -- "org_id = A" --> DA
-    API -- "org_id = B" --> DB
-    API -- "org_id = C" --> DC
+    AD -- "2. Redirect to sign-in when required" --> ADAPP
+    FE -- "2. Redirect to sign-in when required" --> UF
+    ADAPP -- "3. Return to console; MSAL obtains token with admin role" --> AD
+    UF -- "3. Return to webapp; MSAL obtains token with groups" --> FE
+    AD -- "4. Direct API calls with Bearer access token" --> API
+    FE -- "4. Direct API calls with Bearer access token" --> API
+    API -. "Fetch / cache public signing keys via JWKS" .-> ADAPP
+    API -. "Fetch / cache public signing keys via JWKS" .-> UF
+    API -- "5. Customer principal: org_id = A" --> DA
+    API -- "5. Customer principal: org_id = B" --> DB
+    API -- "5. Customer principal: org_id = C" --> DC
 
     classDef store fill:#fff6e6,stroke:#d89a00,color:#5b4300;
     classDef compute fill:#eef3ff,stroke:#4F6BFF,color:#1b2a6b;
@@ -313,6 +315,16 @@ flowchart LR
     class UF,CLAIM,ADAPP idp;
     class PRODTAG prod;
 ```
+
+**Read steps 1–5 in order:** users first open their web app, not the identity
+provider directly. The browser app uses MSAL to redirect to Entra when sign-in
+is needed, handles the return and acquires an access token. Subsequent API
+calls go directly from the browser to FastAPI with that token; Entra and nginx
+do not relay chat traffic. The backend fetches and caches Entra's public signing
+keys, then verifies tokens locally rather than sending each token to Entra.
+The data cylinders represent logical separation within shared services.
+Customer access is scoped to the resolved organization; authorized provider
+admins can manage multiple organizations.
 
 AgentLoom already supports both authentication modes in
 [backend/app/security.py](backend/app/security.py), selected through
