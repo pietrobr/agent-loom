@@ -28,10 +28,12 @@ own no infrastructure.
 - **Logical multi-tenancy**: a single deployment serves every
   customer; isolation is enforced server-side by an `org_id` claim that the
   client can never override.
-- **One isolated Foundry agent per instance**: every template assigned to a
-  customer provisions its **own separate, isolated agent in Foundry** (with that
-  customer's config + knowledge baked in). The Foundry endpoint is never exposed
-  to customers.
+- **One dedicated Foundry agent per instance**: every template assigned to a
+  customer provisions its **own agent in the shared Foundry project**, with
+  customer-specific instructions. The backend retrieves knowledge and supplies
+  it at runtime; documents are not baked into the model. Customers call the
+  backend, not Foundry directly. This is logical isolation, not a separate
+  model deployment or Azure environment per customer.
 - **Retrieval-Augmented Generation (RAG)** per customer: each customer's
   documents are chunked and embedded (`text-embedding-3-small`) into their own
   `kb-{org_id}` Azure AI Search index, then retrieved with vector + semantic
@@ -42,7 +44,8 @@ own no infrastructure.
   breaks the monthly Azure bill (shared platform + LLM tokens + embeddings +
   agentic planning) down per customer, with an end-of-month projection. The
   **Application Insights** line item is counted only while trace mirroring is
-  enabled (see below), so the breakdown reflects the saving when it's off.
+  enabled (see below). This estimate does not mean that all Azure monitoring
+  ingestion or charges stop when mirroring is off.
 - **Monthly token allowance in Metering**: each customer shows its current UTC
   month's chat tokens used, configured quota and remaining tokens, with a subtle
   progress bar (warning from 80%, reached/exceeded at 100%). Selecting a customer
@@ -67,7 +70,9 @@ own no infrastructure.
   GenAI spans to **Azure Application Insights** — wired to the Foundry project so
   the spans also surface in the **Foundry portal**. A second toggle enables
   **prompt/response content recording** (off by default for privacy/cost). Both
-  are gated server-side, so nothing is ingested — or billed — until you opt in.
+  are gated server-side for the application's trace mirroring and GenAI content
+  capture. Container Apps logs and Azure Monitor auto-instrumentation are
+  separate; disabling mirroring does not disable all telemetry or its charges.
 - **Customer user management** (production): the admin **Users** tab lists the
   users in the customers' **Entra External ID (CIAM)** directory — searchable and
   paged for large directories — and lets the provider add or remove them from a
@@ -111,7 +116,7 @@ own no infrastructure.
 
 ```mermaid
 flowchart TB
-    subgraph Clients["End users"]
+    subgraph Clients["End users · SPAs execute in the browser"]
       direction LR
       CW["customer-webapp<br/>brandable chat (SPA)"]
       AD["SaaS Console (admin-designer)<br/>catalog · onboarding · users<br/>metering · costs · tracing · infra"]
@@ -122,49 +127,57 @@ flowchart TB
 
       subgraph ACA["Container Apps Environment · VNet-integrated · NSG on subnets"]
         direction LR
-        WEB["nginx static hosting<br/>(both SPAs)"]
-        API["FastAPI front door<br/>tenant middleware · org_id isolation · SSE"]
-        WEB --> API
+        ADMINWEB["admin-designer Container App<br/>nginx static hosting"]
+        CUSTOMERWEB["customer-webapp Container App<br/>nginx static hosting"]
+        API["backend Container App<br/>Python / FastAPI API<br/>auth · logical tenant isolation · SSE"]
       end
 
-      MI(["User-assigned<br/>Managed Identity"])
+      MI(["Shared user-assigned Managed Identity<br/>attached to all three Container Apps"])
+      SEARCHMI(["Search system-assigned<br/>Managed Identity"])
 
-      OBS["Application Insights + Log Analytics<br/>opt-in GenAI tracing (runtime toggle)"]
+      OBS["Application Insights<br/>application / GenAI trace mirroring: runtime toggle<br/>Azure Monitor auto-instrumentation: separate"]
+      LOG["Log Analytics<br/>Container Apps logs"]
 
       subgraph DataPlane["Data plane · private endpoints (public access OFF)"]
         direction LR
-        COS[("Cosmos DB<br/>pk = org_id")]
+        COS[("Cosmos DB<br/>pk = org_id · application data<br/>usage · traces with 14-day TTL")]
         BL[("Blob Storage<br/>knowledge — MI only")]
         KV[("Key Vault<br/>CIAM provisioning secret")]
       end
 
-      subgraph AIPlane["AI plane"]
+      subgraph AIPlane["AI plane · public endpoints · Entra / RBAC authentication"]
         direction LR
-        SR[("Azure AI Search<br/>kb-{org_id} per customer<br/>vector + semantic")]
+        SR[("Azure AI Search<br/>kb-{org_id} per customer<br/>instance_id filter · hybrid + semantic")]
         subgraph FDRY["Microsoft Foundry"]
           direction TB
-          AG[["per-instance agents<br/>one isolated agent / instance"]]
-          CHAT["chat model<br/>gpt-4o-mini"]
-          EMB["embedding model<br/>text-embedding-3-small"]
+          AG[["per-instance agents<br/>distinct agents · shared project"]]
+          CHAT["shared chat model deployment<br/>default: gpt-4o-mini"]
+          EMB["embedding model deployment<br/>default: text-embedding-3-small"]
         end
       end
     end
 
-    CW -- "Bearer JWT<br/>dev: HS256 demo · prod: groups → org_id" --> WEB
-    AD -- "admin JWT<br/>dev: HS256 demo · prod: RS256/Entra" --> WEB
+    CW -- "load HTML / JS / CSS over HTTPS" --> CUSTOMERWEB
+    AD -- "load HTML / JS / CSS over HTTPS" --> ADMINWEB
+    CW -- "direct API calls · Bearer JWT<br/>dev: HS256 · prod: External ID" --> API
+    AD -- "direct API calls · admin JWT<br/>dev: HS256 · prod: workforce Entra ID" --> API
+    API -- "SSE chat response" --> CW
 
-    API -- "org_id filter" --> COS
+    API -- "org-scoped data · usage · traces" --> COS
     API -- "knowledge blobs" --> BL
-    API -- "search kb-{org_id}" --> SR
+    API -- "search kb-{org_id} · filter by instance_id" --> SR
     API -- "embed docs & queries" --> EMB
-    API -- "run agent" --> AG
+    API -- "run agent with retrieved knowledge" --> AG
     API -- "secrets" --> KV
     AG --> CHAT
-    SR -. "agentic query planning" .-> CHAT
-    API -. "opt-in GenAI traces" .-> OBS
+    SR -. "optional agentic planning / synthesis" .-> CHAT
+    API -. "opt-in application / GenAI trace mirroring" .-> OBS
+    ACA -. "platform logs" .-> LOG
     OBS -. "App Insights connection" .-> FDRY
 
-    MI -. "least-privilege RBAC" .-> COS & BL & SR & FDRY & KV
+    MI -. "service-level RBAC grants" .-> COS & BL & SR & FDRY & KV
+    SR -. "uses" .-> SEARCHMI
+    SEARCHMI -. "Cognitive Services User" .-> FDRY
 
     subgraph Modes["Auth modes (AUTH_MODE)"]
       direction LR
@@ -179,22 +192,49 @@ flowchart TB
     classDef dev fill:#fff3f0,stroke:#d9531e,color:#7a2d0c;
     classDef prod fill:#e9f7ef,stroke:#1b9e5a,color:#0c4a2c;
     class COS,BL,KV store;
-    class WEB,API compute;
+    class ADMINWEB,CUSTOMERWEB,API compute;
     class SR,AG,CHAT,EMB ai;
-    class MI ident;
-    class OBS compute;
+    class MI,SEARCHMI ident;
+    class OBS,LOG compute;
     class DEV dev;
     class PROD prod;
 ```
 
-**Private networking:** Cosmos DB and Blob Storage have **public network access
+**How to read the diagram:** solid arrows show requests, responses or data
+access; dotted arrows show permissions, identity use, optional AI processing or
+observability connections as labelled. The managed identities are credentials
+used by services, not network gateways through which requests pass.
+
+**Three applications, one shared platform:** the provider deploys two frontend
+Container Apps and one backend Container App. All three have external HTTPS
+ingress. nginx only serves static frontend files; the browser sends API calls
+and JWTs directly to the backend. VNet integration provides access to private
+dependencies; it does not make the application's ingress private.
+
+**Backend responsibilities:** FastAPI is the Python framework used to expose
+the HTTP API, not an AI model or Azure Front Door. The backend validates tokens,
+resolves the customer's organization, checks roles and quotas, manages
+configuration and knowledge, retrieves relevant context, invokes Foundry and
+streams chat responses using Server-Sent Events (SSE).
+
+**Data responsibilities and isolation:** Cosmos DB stores application records,
+usage, conversation mappings and application traces. Blob Storage keeps
+original knowledge files; Key Vault holds secrets such as the CIAM provisioning
+credential. Cosmos partitioning by `org_id` organizes data but is not an
+authorization boundary by itself. Backend authorization, org-scoped data access,
+per-customer Search indexes and instance filters enforce logical separation
+within shared services. The shared Container Apps identity has service-level
+permissions, not separate credentials per customer.
+
+**Private networking:** Cosmos DB, Blob Storage and Key Vault have **public network access
 disabled** (tenant-policy compliant). The Container Apps environment is
 **integrated into a VNet** and reaches them over **private endpoints** with
-private DNS zones — no traffic over the public internet. Azure AI Search,
-Foundry and Key Vault are reached via managed identity over their service
-endpoints. Both VNet subnets (`infra` + `pe`) are attached to a **Network
+private DNS zones. Azure AI Search and Foundry use **public service endpoints**
+with managed identity / Entra authentication and RBAC, not private endpoints in
+this deployment. Both VNet subnets (`infra` + `pe`) are attached to a **Network
 Security Group**, so the deploy stays compliant in tenants that enforce the
-*“Subnets must have a Network Security Group”* Azure Policy.
+*“Subnets must have a Network Security Group”* Azure Policy. The NSG uses default
+rules; its presence alone does not imply a custom deny-all network policy.
 
 ### Production identity: Microsoft Entra External ID (multi-customer)
 
@@ -210,7 +250,7 @@ fully isolated server-side — same code, same containers, separate data per
 **Two identity providers, two audiences.** End customers sign in via **Entra
 External ID (CIAM)**, while the provider's own staff sign in to the
 admin-designer via the provider's **corporate Entra ID (workforce) tenant** — an
-admin is an internal employee, *not* an External ID consumer. The front door
+admin is an internal employee, *not* an External ID consumer. The backend API
 accepts both: customer tokens (audience = customer app, carry a `groups` claim
 that maps to a tenant) and admin tokens (audience = admin app, carry `roles`
 incl. `admin`, and `org_id` is set to `_system`).
@@ -243,7 +283,7 @@ flowchart LR
       direction TB
       AD["SaaS Console"]
       FE["customer-webapp"]
-      API["FastAPI front door<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
+      API["Python / FastAPI backend API<br/>RS256 / JWKS validation<br/>+ tenant middleware"]
       DA[("org A data<br/>Cosmos pk · kb-orgA")]
       DB[("org B data<br/>Cosmos pk · kb-orgB")]
       DC[("org C data<br/>Cosmos pk · kb-orgC")]
@@ -286,19 +326,42 @@ tenant middleware, per-`org_id` isolation and routers use the resulting
 [§6 Wire Microsoft Entra External ID](#6-wire-microsoft-entra-external-id-ciam)
 for the required tenant, app registration and environment configuration.
 
-**Runtime chat flow:** customer user → front door (authenticates, resolves
-`org_id` from the token, enforces isolation) → backend embeds the question and
-retrieves the customer's most relevant knowledge chunks from `kb-{org_id}`
-(vector + semantic search, or **agentic retrieval** when the instance enables
-it) → runs the template's Foundry agent with the customer's config + retrieved
-context injected → streams tokens back via **SSE** → records usage (chat,
-embedding and agentic planning tokens) in the customer's metering partition.
+**Knowledge ingestion:** an admin uploads a file to the backend, which stores
+the original in Blob Storage and indexes text chunks with embeddings in the
+customer's `kb-{org_id}` Search index, tagged with the assistant's `instance_id`.
+Embeddings represent text as vectors for similarity search; uploading documents
+does not train or fine-tune the chat model.
+
+**Runtime chat flow:** customer SPA in the browser → backend API (authenticates,
+resolves `org_id`, enforces tenant access and monthly chat quota) → retrieves
+the selected instance's most relevant knowledge chunks from `kb-{org_id}`.
+The standard path embeds the question and uses hybrid keyword/vector search
+with semantic ranking when available; optional **agentic retrieval** uses
+Search's own managed identity to call Foundry for planning and synthesis, with
+a fallback to standard RAG on failure. The backend then runs the instance's
+dedicated Foundry agent with the retrieved context → streams the response
+directly to the browser via **SSE** → records usage. Chat and agentic usage are
+metered in this flow; document embedding usage is metered during ingestion.
+
+**Agents versus models:** agents hold instructions, model selection and any
+configured tools. Distinct customer agents can share a model deployment;
+neither an agent nor a Search index implies a separate Azure environment.
+`gpt-4o-mini` and `text-embedding-3-small` are configurable deployment defaults.
+
+**Observability:** application traces are stored in Cosmos DB with a 14-day TTL.
+The Infra toggle controls mirroring of application / GenAI spans to Application
+Insights, which is connected to Foundry for portal visibility. Prompt/response
+capture has its own toggle. Container Apps logs still flow to Log Analytics,
+and Azure Monitor auto-instrumentation is configured when its connection string
+is present; the mirroring toggle is not a global telemetry or billing switch.
 
 **Frontend serving:** the two web apps (admin-designer and customer-webapp) are
 React + Vite single-page apps. At build time Vite compiles each into static
 files (HTML, JS, CSS); these are then served by a lightweight **nginx**
 (`nginx:1.29-alpine`) web server on port 80, each in its own Container App — no
 Node.js runtime is needed in production.
+nginx does not reverse-proxy the API: each SPA calls the backend's own HTTPS
+ingress URL directly.
 
 **One image, many environments — runtime config.** A Vite app normally reads
 its configuration (like the backend URL) from `VITE_*` variables that are
@@ -341,7 +404,7 @@ AgentLoom/
 ├─ infra/                     # Modular Bicep
 │  ├─ main.bicep              # root: network, identity, KV, Cosmos, Search, Storage, ACR, Foundry, ACA
 │  └─ modules/*.bicep         # incl. network.bicep (VNet + NSG + DNS) + privateEndpoint.bicep
-├─ backend/                   # FastAPI front door
+├─ backend/                   # Python / FastAPI backend API
 │  └─ app/
 │     ├─ main.py middleware.py security.py config.py models.py credentials.py jwks.py
 │     ├─ routers/  catalog.py admin.py chat.py branding.py dev_auth.py demo.py infra.py me.py tracing.py
@@ -1110,18 +1173,23 @@ questions and acceptance checks. It is not added to the automatic seed list.
   verified token claim. Every Cosmos/Search query is forced on `org_id`; an
   org-A token targeting an org-B path returns **403** (verified by the included
   middleware tests).
-- 🧱 **Least-privilege RBAC.** The managed identity gets exactly: Cosmos DB
+- 🧱 **Service-level RBAC.** The user-assigned identity shared by the three
+  Container Apps receives Cosmos DB
   Built-in Data Contributor, Search Index Data Contributor + Service
   Contributor, Storage Blob Data Contributor, Key Vault Secrets User, AcrPull,
-  and Azure AI User on Foundry. The Search service's own identity gets Cognitive
+  Azure AI User and account Reader on Foundry. These grants are shared across
+  customers; tenant authorization is enforced by the backend. The Search
+  service's own identity gets Cognitive
   Services User on Foundry so it can call the chat model for agentic retrieval
   query planning.
 - 🌐 **HTTPS + CORS + security headers.** Container Apps ingress is HTTPS-only
-  (`allowInsecure=false`); CORS is restricted to the web origins; responses set
+  (`allowInsecure=false`); CORS is configurable through `ALLOWED_ORIGINS`
+  (the Bicep default is `*`, not a production origin allowlist); responses set
   `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` and HSTS.
 - 📊 **Diagnostics** flow to Log Analytics; all resources are tagged. Mirroring
   request/GenAI spans to **Application Insights** is **opt-in at runtime** (admin
-  **Infra** tab) and off by default, so no telemetry is ingested until enabled.
+  **Infra** tab) and off by default. This does not disable Container Apps logs
+  or Azure Monitor auto-instrumentation, nor guarantee zero monitoring charges.
 - 🔏 **Prompt/response privacy.** GenAI **content recording** (capturing prompt
   and response text on traces) is a **separate, off-by-default** toggle —
   customer prompts may contain personal data, so enable it deliberately and only
