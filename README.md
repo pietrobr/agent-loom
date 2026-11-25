@@ -28,16 +28,18 @@ own no infrastructure.
 - **Logical multi-tenancy**: a single deployment serves every
   customer; isolation is enforced server-side by an `org_id` claim that the
   client can never override.
-- **One dedicated Foundry agent per instance**: every template assigned to a
-  customer provisions its **own agent in the shared Foundry project**, with
-  customer-specific instructions. The backend retrieves knowledge and supplies
+- **Foundry agents for customer instances**: a template assigned to a customer
+  provisions an agent in the shared Foundry project, with customer-specific
+  instructions. Agent names are derived from template and customer, so instances
+  of the same template for the same customer share an agent. The backend retrieves knowledge and supplies
   it at runtime; documents are not baked into the model. Customers call the
   backend, not Foundry directly. This is logical isolation, not a separate
   model deployment or Azure environment per customer.
 - **Retrieval-Augmented Generation (RAG)** per customer: each customer's
   documents are chunked and embedded (`text-embedding-3-small`) into their own
   `kb-{org_id}` Azure AI Search index, then retrieved with vector + semantic
-  search to ground every answer. Templates can optionally enable **agentic
+  search to provide context when available. Retrieval and model output do not
+  guarantee that every answer is grounded. Templates can optionally enable **agentic
   retrieval** (Search plans multi-step queries against a knowledge base using
   the Foundry chat model).
 - **Per-customer cost attribution** (multi-currency): the admin **Costs** tab
@@ -218,7 +220,7 @@ configuration and knowledge, retrieves relevant context, invokes Foundry and
 streams chat responses using Server-Sent Events (SSE).
 
 **Data responsibilities and isolation:** Cosmos DB stores application records,
-usage, conversation mappings and application traces. Blob Storage keeps
+usage, conversation mappings, completed chat turns and application traces. Blob Storage keeps
 original knowledge files; Key Vault holds secrets such as the CIAM provisioning
 credential. Cosmos partitioning by `org_id` organizes data but is not an
 authorization boundary by itself. Backend authorization, org-scoped data access,
@@ -339,8 +341,11 @@ tenant middleware, per-`org_id` isolation and routers use the resulting
 for the required tenant, app registration and environment configuration.
 
 **Knowledge ingestion:** an admin uploads a file to the backend, which stores
-the original in Blob Storage and indexes text chunks with embeddings in the
+the original in Blob Storage and decodes its bytes as UTF-8 before indexing
+text chunks with embeddings in the
 customer's `kb-{org_id}` Search index, tagged with the assistant's `instance_id`.
+This path does not extract text from PDF or DOCX files; use UTF-8 text files for
+knowledge uploads. Chat attachments use a separate PDF/DOCX text extractor.
 Embeddings represent text as vectors for similarity search; uploading documents
 does not train or fine-tune the chat model.
 
@@ -351,9 +356,36 @@ The standard path embeds the question and uses hybrid keyword/vector search
 with semantic ranking when available; optional **agentic retrieval** uses
 Search's own managed identity to call Foundry for planning and synthesis, with
 a fallback to standard RAG on failure. The backend then runs the instance's
-dedicated Foundry agent with the retrieved context → streams the response
-directly to the browser via **SSE** → records usage. Chat and agentic usage are
+Foundry agent with the retrieved context → streams the response
+directly to the browser via **SSE** → records usage. Each response can cite
+numbered excerpts sent to the model; click a citation to preview its title and
+excerpt, or open **Sources** to see the list. Explicit references such as
+`[[source:1]]`, `(source: [1])`, and `(Fonti: [1, 2])` resolve against the
+current turn's sources. Bare numbers are not treated as citations, and a
+matched reference does not verify that a claim is supported. If retrieval fails or yields no
+sources, the UI says so. Completed turns are saved in Cosmos DB with their
+citations and can be reopened from **Recent chats** after a reload or on
+another device. History is scoped to the signed-in user, organization and
+selected assistant. Use **New folder** to organize chats and the chat's
+options button to rename, move or pin it. On desktop, drag a chat onto a
+folder name to move it, or onto **Recent chats** to remove it from its folder.
+Pinned chats appear at the top
+without losing their folder. Messages sent with attachments include the extracted text
+in the saved turn; the original attachment is not saved by chat. Earlier
+turns from before history was enabled are not backfilled. Source origins are
+not links to the original files. Chat and agentic usage are
 metered in this flow; document embedding usage is metered during ingestion.
+
+Users can mark a saved answer as helpful or not helpful and add an optional
+comment. They can update their feedback from the same answer in chat history.
+**SaaS Admin Console → Feedback** shows the latest 50 matching entries for
+the selected customer, with assistant and rating filters. Administrators
+can review the rated answer and its cited sources, not the full conversation.
+
+Conversation mappings are scoped to the authenticated user and selected
+instance as well as the organization. Switching instances starts a new chat.
+Older mappings without user and instance ownership cannot be resumed; start a
+new conversation rather than assigning them to an unverified owner.
 
 **Agents versus models:** agents hold instructions, model selection and any
 configured tools. Distinct customer agents can share a model deployment;

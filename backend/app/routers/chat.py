@@ -10,9 +10,11 @@ from datetime import datetime, timezone
 from typing import AsyncGenerator
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from azure.core.exceptions import AzureError
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Response
+from pydantic import BaseModel, field_validator
 from sse_starlette.sse import EventSourceResponse
-from ..models import ChatRequest
+from ..models import ChatFeedback, ChatRequest
 from ..security import Principal, get_principal
 from ..config import get_settings
 from ..services import agentic, cosmos, foundry, search, tracing
@@ -25,19 +27,179 @@ log = logging.getLogger(__name__)
 _MAX_EXTRACT_CHARS = 20_000
 
 
-def _thread_id_for(org_id: str, conversation_id: str) -> str:
-    """Map (org_id, conversation_id) → Foundry thread_id, creating on demand."""
+def _owned_thread(org_id: str, user_id: str, instance_id: str, conversation_id: str) -> dict:
+    existing = cosmos.read("threads", org_id, f"thread::{conversation_id}")
+    if (existing and existing.get("user_id") == user_id
+            and existing.get("instance_id") == instance_id and existing.get("thread_id")):
+        return existing
+    raise HTTPException(404, "conversation not found")
+
+
+def _thread_id_for(org_id: str, user_id: str, instance_id: str, conversation_id: str, *,
+                   new: bool, title: str = "New chat") -> str:
+    """Create a conversation or resolve one only for its owner and instance."""
     key = f"thread::{conversation_id}"
-    existing = cosmos.read("threads", org_id, key)
-    if existing and existing.get("thread_id"):
-        return existing["thread_id"]
-    thread_id = foundry.create_thread()
-    cosmos.upsert(
-        "threads",
-        org_id,
-        {"id": key, "org_id": org_id, "conversation_id": conversation_id, "thread_id": thread_id},
+    if new:
+        thread_id = foundry.create_thread()
+        cosmos.create(
+            "threads",
+            org_id,
+            {"id": key, "org_id": org_id, "user_id": user_id, "instance_id": instance_id,
+             "conversation_id": conversation_id, "thread_id": thread_id, "title": title},
+        )
+        return thread_id
+    return _owned_thread(org_id, user_id, instance_id, conversation_id)["thread_id"]
+
+
+def _history_scope(p: Principal, instance_id: str) -> list[dict]:
+    if not cosmos.get_instance(p.org_id, instance_id):
+        raise HTTPException(404, "instance not found for this org")
+    return [
+        {"name": "@user", "value": p.sub},
+        {"name": "@instance", "value": instance_id},
+    ]
+
+
+def _chat_name(value: str) -> str:
+    name = " ".join(value.split())
+    if not name or len(name) > 100:
+        raise ValueError("name must contain 1 to 100 characters")
+    return name
+
+
+class FolderRequest(BaseModel):
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        return _chat_name(value)
+
+
+class ConversationUpdate(BaseModel):
+    title: str | None = None
+    pinned: bool | None = None
+    folder_id: uuid.UUID | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, value: str | None) -> str:
+        if value is None:
+            raise ValueError("title cannot be null")
+        return _chat_name(value)
+
+    @field_validator("pinned")
+    @classmethod
+    def validate_pin(cls, value: bool | None) -> bool:
+        if value is None:
+            raise ValueError("pinned cannot be null")
+        return value
+
+
+@router.get("/chat/folders")
+def list_folders(instance_id: str, response: Response, p: Principal = Depends(get_principal)) -> list[dict]:
+    response.headers["Cache-Control"] = "no-store"
+    return cosmos.query(
+        "threads", p.org_id,
+        "SELECT c.folder_id, c.name FROM c WHERE STARTSWITH(c.id, 'folder::') "
+        "AND c.user_id = @user AND c.instance_id = @instance ORDER BY c.name ASC",
+        _history_scope(p, instance_id),
     )
-    return thread_id
+
+
+@router.post("/chat/folders", status_code=201)
+def create_folder(body: FolderRequest, instance_id: str, p: Principal = Depends(get_principal)) -> dict:
+    _history_scope(p, instance_id)
+    folder = {"folder_id": str(uuid.uuid4()), "name": body.name}
+    cosmos.create("threads", p.org_id, {
+        **folder, "id": f"folder::{folder['folder_id']}", "user_id": p.sub, "instance_id": instance_id,
+    })
+    return folder
+
+
+@router.get("/chat/conversations")
+def list_conversations(instance_id: str, response: Response, p: Principal = Depends(get_principal)) -> list[dict]:
+    response.headers["Cache-Control"] = "no-store"
+    return cosmos.query(
+        "threads", p.org_id,
+        "SELECT c.conversation_id, c.title, c.updated_at, c.pinned, c.folder_id FROM c "
+        "WHERE STARTSWITH(c.id, 'thread::') AND c.user_id = @user "
+        "AND c.instance_id = @instance AND IS_DEFINED(c.updated_at) ORDER BY c.updated_at DESC",
+        _history_scope(p, instance_id),
+    )
+
+
+@router.patch("/chat/conversations/{conversation_id}", status_code=204)
+def update_conversation(conversation_id: str, instance_id: str, body: ConversationUpdate,
+                        p: Principal = Depends(get_principal)) -> Response:
+    _history_scope(p, instance_id)
+    thread = _owned_thread(p.org_id, p.sub, instance_id, conversation_id)
+    if not thread.get("updated_at"):
+        raise HTTPException(404, "conversation not found")
+    changes = body.model_dump(mode="json", exclude_unset=True)
+    if not changes:
+        raise HTTPException(422, "no conversation changes supplied")
+    if folder_id := changes.get("folder_id"):
+        folder = cosmos.read("threads", p.org_id, f"folder::{folder_id}")
+        if not folder or folder.get("user_id") != p.sub or folder.get("instance_id") != instance_id:
+            raise HTTPException(404, "folder not found")
+    cosmos.update_chat_metadata(p.org_id, conversation_id, changes)
+    return Response(status_code=204)
+
+
+@router.get("/chat/conversations/{conversation_id}")
+def get_conversation(conversation_id: str, instance_id: str, response: Response,
+                     p: Principal = Depends(get_principal)) -> dict:
+    scope = _history_scope(p, instance_id)
+    thread = _owned_thread(p.org_id, p.sub, instance_id, conversation_id)
+    if not thread.get("updated_at"):
+        raise HTTPException(404, "conversation not found")
+    response.headers["Cache-Control"] = "no-store"
+    return {"turns": cosmos.query(
+        "threads", p.org_id,
+        "SELECT c.id AS turn_id, c.user_text, c.answer, c.sources, c.feedback FROM c "
+        "WHERE STARTSWITH(c.id, 'turn::') "
+        "AND c.conversation_id = @conversation AND c.user_id = @user "
+        "AND c.instance_id = @instance ORDER BY c.created_at ASC",
+        [*scope, {"name": "@conversation", "value": conversation_id}],
+    )}
+
+
+@router.put("/chat/conversations/{conversation_id}/turns/{turn_id}/feedback")
+def submit_feedback(conversation_id: str, turn_id: str, instance_id: str, body: ChatFeedback,
+                    response: Response, p: Principal = Depends(get_principal)) -> dict:
+    _history_scope(p, instance_id)
+    _owned_thread(p.org_id, p.sub, instance_id, conversation_id)
+    turn = cosmos.read("threads", p.org_id, turn_id) if turn_id.startswith("turn::") else None
+    if not turn or (
+        turn.get("conversation_id"), turn.get("user_id"), turn.get("instance_id")
+    ) != (conversation_id, p.sub, instance_id):
+        raise HTTPException(404, "answer not found")
+    feedback = {
+        "rating": body.rating, "comment": body.comment.strip(),
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    cosmos.save_chat_feedback(p.org_id, turn_id, feedback)
+    response.headers["Cache-Control"] = "no-store"
+    return feedback
+
+
+def _citation_sources(hits: list[dict]) -> list[dict]:
+    """Keep only excerpts actually sent to the model, with turn-local markers."""
+    sources = []
+    for hit in hits:
+        content = str(hit.get("content") or "")[:1200]
+        if not content.strip():
+            continue
+        sources.append({
+            "number": len(sources) + 1,
+            "id": hit.get("id"),
+            "parent_id": hit.get("parent_id"),
+            "title": str(hit.get("title") or "Untitled"),
+            "source": str(hit.get("source") or "unknown"),
+            "content": content,
+        })
+    return sources
 
 
 def _extract_text(filename: str, content_type: str, raw: bytes) -> str:
@@ -158,7 +320,10 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     conversation_id = req.conversation_id or str(uuid.uuid4())
     with tracing.span("foundry.resolve_thread", instance_id=req.instance_id,
                       conversation_id=conversation_id):
-        thread_id = _thread_id_for(p.org_id, conversation_id)
+        thread_id = _thread_id_for(
+            p.org_id, p.sub, req.instance_id, conversation_id, new=req.conversation_id is None,
+            title=" ".join(req.message.split("\n\n--- BEGIN DOCUMENT ---", 1)[0].split())[:100] or "New chat",
+        )
 
     # Retrieve this instance's private knowledge. When the instance opted into
     # Azure AI Search agentic retrieval, run the knowledge base (LLM query
@@ -167,6 +332,7 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
     agentic_used = False
     agentic_tokens = 0
     hits: list = []
+    retrieval_status = "available"
     if instance.get("agentic_retrieval"):
         try:
             with tracing.span("agentic.retrieve", instance_id=req.instance_id):
@@ -174,23 +340,28 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
                 answer, refs, agentic_tokens = await anyio.to_thread.run_sync(
                     agentic.retrieve, p.org_id, req.message, req.instance_id, system_prompt
                 )
-            hits = refs
-            # If the KB returned no grounding refs but did synthesize an answer,
-            # pass that answer as a single knowledge item so the agent can use it.
-            if not hits and answer:
-                hits = [{"title": "Agentic answer", "content": answer, "source": "agentic"}]
-            agentic_used = True
+            hits = _citation_sources(refs)
+            # A synthesized answer without source excerpts is not a document.
+            agentic_used = bool(hits)
             tracing.event("Agentic retrieval done", refs=len(refs), tokens=agentic_tokens)
         except Exception as exc:  # pragma: no cover - degrade to standard RAG
             tracing.event("Agentic retrieve failed; falling back to RAG",
                           level="WARNING", error=str(exc))
             log.warning("agentic retrieve failed for %s; falling back: %s", p.org_id, exc)
     if not agentic_used:
-        with tracing.span("search.rag", instance_id=req.instance_id):
-            hits = search.search(p.org_id, req.message, instance_id=req.instance_id, top=5)
+        try:
+            with tracing.span("search.rag", instance_id=req.instance_id):
+                hits = _citation_sources(search.search(p.org_id, req.message, instance_id=req.instance_id, top=5))
+        except Exception:
+            log.exception("Knowledge retrieval failed for %s", p.org_id)
+            hits = []
+            retrieval_status = "error"
+    if not hits and retrieval_status != "error":
+        retrieval_status = "not_found"
     tracing.event("Knowledge retrieved", kb_hits=len(hits), agentic=agentic_used)
 
     async def event_stream() -> AsyncGenerator[dict, None]:
+        turn_sources = {"status": retrieval_status, "sources": hits}
         yield {"event": "meta", "data": json.dumps({
             "conversation_id": conversation_id,
             "instance_id": req.instance_id,
@@ -198,6 +369,7 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             "kb_hits": len(hits),
             "agentic": agentic_used,
         })}
+        yield {"event": "sources", "data": json.dumps(turn_sources)}
 
         usage_info = {"input": 0, "output": 0, "total": 0}
 
@@ -222,9 +394,10 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
         # Span around the model run so the Tracing page shows the GenAI call,
         # its duration and (after completion) the token usage + model.
         completion_parts: list[str] = []
+        completed = failed = False
         with tracing.span("foundry.stream_run", model=model_name,
                           agent=agent_id, conversation_id=conversation_id) as model_span:
-            async with anyio.create_task_group() as tg:
+            async with recv_queue, anyio.create_task_group() as tg:
                 tg.start_soon(anyio.to_thread.run_sync, _run_sync)
                 async for ev, data in recv_queue:
                     if ev == "usage":
@@ -237,9 +410,10 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
                         completion_parts.append(data)
                         yield {"event": "token", "data": data}
                     elif ev == "error":
+                        failed = True
                         yield {"event": "error", "data": data}
                     elif ev == "done":
-                        yield {"event": "done", "data": ""}
+                        completed = True
             # GenAI semantic-convention attributes on the model span (and the
             # OTEL span for App Insights). Prompt/response text only when the
             # content-recording infra toggle is on.
@@ -260,6 +434,24 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
             total_tokens=usage_info.get("total", 0),
         )
 
+        saved_turn_id = None
+        if completed and not failed and completion_parts:
+            turn = {
+                "id": f"turn::{uuid.uuid4()}", "conversation_id": conversation_id,
+                "user_id": p.sub, "instance_id": req.instance_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "user_text": req.message, "answer": "".join(completion_parts), "sources": turn_sources,
+            }
+            try:
+                await anyio.to_thread.run_sync(cosmos.save_chat_turn, p.org_id, conversation_id, turn)
+            except AzureError:
+                log.exception("Could not save chat turn for conversation %s", conversation_id)
+                yield {"event": "error", "data": "The answer was generated but could not be saved to chat history."}
+            else:
+                saved_turn_id = turn["id"]
+        if completed:
+            yield {"event": "done", "data": json.dumps({"turn_id": saved_turn_id}) if saved_turn_id else ""}
+
         cosmos.log_metering({
             "id": str(uuid.uuid4()),
             "org_id": p.org_id,
@@ -273,7 +465,7 @@ async def chat(req: ChatRequest, p: Principal = Depends(get_principal)) -> Event
 
         # Meter the agentic-retrieval planning/synthesis tokens separately so
         # they don't inflate chat metrics but still show up as their own cost.
-        if agentic_used and agentic_tokens:
+        if agentic_tokens:
             cosmos.log_metering({
                 "id": str(uuid.uuid4()),
                 "org_id": p.org_id,

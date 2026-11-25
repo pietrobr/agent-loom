@@ -31,7 +31,7 @@ async function readError(res: Response, label: string): Promise<ApiError> {
   try {
     const j = await res.json();
     code = j?.code;
-    detail = j?.detail || "";
+    detail = typeof j?.detail === "string" ? j.detail : "";
   } catch {
     /* non-JSON body */
   }
@@ -123,10 +123,97 @@ export async function fetchCatalog(): Promise<CatalogItem[]> {
 
 export interface ChatEvents {
   onMeta?: (m: any) => void;
+  onSources?: (result: ChatSources) => void;
   onToken?: (t: string) => void;
   onUsage?: (u: any) => void;
-  onDone?: () => void;
+  onDone?: (turnId?: string) => void;
   onError?: (msg: string, status?: number, code?: string) => void;
+}
+
+export interface CitationSource {
+  number: number;
+  id: string | null;
+  parent_id: string | null;
+  title: string;
+  source: string;
+  content: string;
+  document_url?: string;
+}
+
+export interface ChatSources {
+  status: "available" | "not_found" | "error";
+  sources: CitationSource[];
+}
+
+export interface ConversationSummary {
+  conversation_id: string;
+  title?: string;
+  updated_at: string;
+  pinned?: boolean;
+  folder_id?: string | null;
+}
+
+export interface ChatFolder {
+  folder_id: string;
+  name: string;
+}
+
+export type ConversationChanges = Partial<Pick<ConversationSummary, "title" | "pinned" | "folder_id">>;
+
+interface ConversationTurn {
+  turn_id: string;
+  user_text: string;
+  answer: string;
+  sources: ChatSources;
+  feedback?: AnswerFeedback;
+}
+
+export type FeedbackRating = "up" | "down";
+export interface AnswerFeedback {
+  rating: FeedbackRating;
+  comment: string;
+  submitted_at: string;
+}
+
+async function historyRequest(path: string, instanceId: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`${API_BASE}/v1/chat/${path}?${new URLSearchParams({ instance_id: instanceId })}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${getToken()}`, ...init?.headers },
+  });
+  if (!res.ok) throw await readError(res, "chat history");
+  return res;
+}
+
+export async function fetchConversations(instanceId: string, signal: AbortSignal): Promise<ConversationSummary[]> {
+  return (await historyRequest("conversations", instanceId, { signal })).json();
+}
+
+export async function fetchConversation(instanceId: string, id: string): Promise<{ turns: ConversationTurn[] }> {
+  return (await historyRequest(`conversations/${encodeURIComponent(id)}`, instanceId)).json();
+}
+
+export async function saveAnswerFeedback(instanceId: string, conversationId: string, turnId: string,
+  rating: FeedbackRating, comment: string): Promise<AnswerFeedback> {
+  const path = `conversations/${encodeURIComponent(conversationId)}/turns/${encodeURIComponent(turnId)}/feedback`;
+  return (await historyRequest(path, instanceId, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rating, comment }),
+  })).json();
+}
+
+export async function fetchChatFolders(instanceId: string, signal: AbortSignal): Promise<ChatFolder[]> {
+  return (await historyRequest("folders", instanceId, { signal })).json();
+}
+
+export async function createChatFolder(instanceId: string, name: string): Promise<ChatFolder> {
+  return (await historyRequest("folders", instanceId, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }),
+  })).json();
+}
+
+export async function updateConversation(instanceId: string, id: string, changes: ConversationChanges): Promise<void> {
+  await historyRequest(`conversations/${encodeURIComponent(id)}`, instanceId, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(changes),
+  });
 }
 
 export interface ExtractedFile {
@@ -190,12 +277,14 @@ export async function streamChat(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let finished = false;
 
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
     // Normalize CRLF -> LF so SSE records parse regardless of server line endings.
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, "\n");
 
     // Parse complete SSE records separated by a blank line.
     let sepIdx: number;
@@ -216,6 +305,16 @@ export async function streamChat(
         case "token":
           ev.onToken?.(data);
           break;
+        case "sources": {
+          const parsed = safeJson(data);
+          if (parsed && typeof parsed === "object" && Array.isArray(parsed.sources) &&
+              ["available", "not_found", "error"].includes(parsed.status)) {
+            ev.onSources?.(parsed as ChatSources);
+          } else {
+            ev.onError?.("Invalid source information received.");
+          }
+          break;
+        }
         case "usage":
           ev.onUsage?.(safeJson(data));
           break;
@@ -223,12 +322,19 @@ export async function streamChat(
           ev.onError?.(data);
           break;
         case "done":
-          ev.onDone?.();
+          if (!finished) {
+            finished = true;
+            const result = safeJson(data);
+            ev.onDone?.(typeof result?.turn_id === "string" ? result.turn_id : undefined);
+          }
           break;
       }
     }
   }
-  ev.onDone?.();
+  if (!finished) {
+    ev.onError?.("The response stream ended unexpectedly.");
+    ev.onDone?.();
+  }
 }
 
 function safeJson(s: string): any {

@@ -64,6 +64,11 @@ def upsert(container: str, org_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
     return _container(container).upsert_item(item)
 
 
+def create(container: str, org_id: str, item: Dict[str, Any]) -> Dict[str, Any]:
+    item["org_id"] = org_id
+    return _container(container).create_item(item)
+
+
 def read(container: str, org_id: str, item_id: str) -> Optional[Dict[str, Any]]:
     try:
         return _container(container).read_item(item=item_id, partition_key=org_id)
@@ -86,6 +91,38 @@ def query(container: str, org_id: str, sql: str, params: Optional[List[Dict[str,
             partition_key=org_id,
         )
     )
+
+
+def save_chat_turn(org_id: str, conversation_id: str, turn: Dict[str, Any]) -> None:
+    _container("threads").execute_item_batch(
+        [
+            ("create", (dict(turn, org_id=org_id),)),
+            ("patch", (f"thread::{conversation_id}", [
+                {"op": "set", "path": "/updated_at", "value": turn["created_at"]},
+            ])),
+        ],
+        partition_key=org_id,
+    )
+
+
+def update_chat_metadata(org_id: str, conversation_id: str, changes: Dict[str, Any]) -> None:
+    _container("threads").patch_item(
+        item=f"thread::{conversation_id}",
+        partition_key=org_id,
+        patch_operations=[{"op": "set", "path": f"/{key}", "value": value} for key, value in changes.items()],
+    )
+
+
+def save_chat_feedback(org_id: str, turn_id: str, feedback: Dict[str, Any]) -> None:
+    _container("threads").patch_item(
+        item=turn_id, partition_key=org_id,
+        patch_operations=[{"op": "set", "path": "/feedback", "value": feedback}],
+    )
+
+
+def delete_chat_history(org_id: str) -> None:
+    for row in query("threads", org_id, "SELECT c.id FROM c"):
+        delete("threads", org_id, row["id"])
 
 
 # --------------------------------------------------------------------------- #

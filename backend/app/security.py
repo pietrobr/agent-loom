@@ -125,8 +125,11 @@ def _verify_production(token: str, settings: Settings) -> Principal:
             org_id = _resolve_customer_org(payload, settings)
             if not org_id:
                 raise UnassignedCustomerError()
+            sub = payload.get("sub")
+            if not isinstance(sub, str) or not sub.strip():
+                raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing subject")
             return Principal(
-                sub=str(payload.get("sub", "user")),
+                sub=sub,
                 org_id=str(org_id),
                 roles=[],
                 email=payload.get("preferred_username") or payload.get("email"),
@@ -156,6 +159,8 @@ def _verify_dev(token: str, settings: Settings) -> Principal:
     org_id = payload.get("org_id")
     if not org_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing org_id claim")
+    if not isinstance(payload.get("sub"), str) or not payload["sub"].strip():
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing subject")
 
     return Principal(
         sub=str(payload["sub"]),

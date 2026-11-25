@@ -103,6 +103,14 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
+FeedbackRating = Literal["up", "down"]
+
+
+class ChatFeedback(BaseModel):
+    rating: FeedbackRating
+    comment: str = Field(default="", max_length=1000)
+
+
 class MeteringEvent(BaseModel):
     id: str
     org_id: str

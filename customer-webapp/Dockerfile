@@ -18,6 +18,7 @@ RUN apk upgrade --no-cache && (apk del curl libcurl 2>/dev/null || true)
 COPY customer-webapp/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY customer-webapp/docker-entrypoint.sh /docker-entrypoint.d/99-env-config.sh
-RUN chmod +x /docker-entrypoint.d/99-env-config.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.d/99-env-config.sh \
+    && chmod +x /docker-entrypoint.d/99-env-config.sh
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

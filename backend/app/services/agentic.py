@@ -229,6 +229,8 @@ def retrieve(
         sd = ref.get("sourceData") or {}
         references.append(
             {
+                "id": sd.get("id"),
+                "parent_id": sd.get("parent_id"),
                 "title": sd.get("title", ""),
                 "content": sd.get("content", ""),
                 "source": sd.get("source", "agentic"),

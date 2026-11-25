@@ -123,6 +123,22 @@ export interface Instance {
   agentic_retrieval?: boolean;
   foundry_agent_id?: string;
 }
+export type FeedbackRating = "up" | "down";
+export interface FeedbackEntry {
+  rating: FeedbackRating;
+  comment: string;
+  submitted_at: string;
+}
+export interface FeedbackRow {
+  turn_id: string;
+  instance_id: string;
+  feedback: FeedbackEntry;
+}
+export interface FeedbackDetail {
+  answer: string;
+  sources: { number: number; title: string; source: string; content: string }[];
+  feedback: FeedbackEntry;
+}
 export interface MeteringDay {
   date: string;
   calls: number;
@@ -279,14 +295,22 @@ export const api = {
     req<void>(`/v1/admin/templates/${id}`, { method: "DELETE" }),
   listFoundryModels: () => req<string[]>("/v1/admin/foundry/models"),
 
-  listCustomers: () => req<Tenant[]>("/v1/admin/customers"),
+  listCustomers: (signal?: AbortSignal) => req<Tenant[]>("/v1/admin/customers", { signal }),
   saveCustomer: (c: Partial<Tenant>) =>
     req<Tenant>("/v1/admin/customers", { method: "POST", body: JSON.stringify(c) }),
   deleteCustomer: (orgId: string) =>
     req<void>(`/v1/admin/customers/${orgId}`, { method: "DELETE" }),
 
-  listInstances: (orgId: string) =>
-    req<Instance[]>(`/v1/admin/customers/${orgId}/instances`),
+  listInstances: (orgId: string, signal?: AbortSignal) =>
+    req<Instance[]>(`/v1/admin/customers/${encodeURIComponent(orgId)}/instances`, { signal }),
+  listFeedback: (orgId: string, instanceId: string, rating: FeedbackRating | "", signal: AbortSignal) => {
+    const filters = new URLSearchParams();
+    if (instanceId) filters.set("instance_id", instanceId);
+    if (rating) filters.set("rating", rating);
+    return req<FeedbackRow[]>(`/v1/admin/customers/${encodeURIComponent(orgId)}/feedback?${filters}`, { signal });
+  },
+  getFeedback: (orgId: string, turnId: string, signal: AbortSignal) =>
+    req<FeedbackDetail>(`/v1/admin/customers/${encodeURIComponent(orgId)}/feedback/${encodeURIComponent(turnId)}`, { signal }),
   instanceDocumentCounts: (orgId: string) =>
     req<Record<string, number>>(`/v1/admin/customers/${orgId}/instances/document-counts`),
   saveInstance: (orgId: string, i: Partial<Instance>) =>

@@ -8,10 +8,15 @@ import {
   makeStyles,
   tokens,
   MessageBar,
+  Popover,
+  PopoverSurface,
+  PopoverTrigger,
 } from "@fluentui/react-components";
-import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular, DocumentText24Regular } from "@fluentui/react-icons";
+import { Send24Filled, ArrowClockwise20Regular, SignOut20Regular, Attach24Regular, DocumentText24Regular, History20Regular } from "@fluentui/react-icons";
 import { brandGradient } from "./theme";
-import { Markdown } from "./Markdown";
+import { Markdown, citationNumbers } from "./Markdown";
+import { ChatHistory } from "./ChatHistory";
+import { FeedbackControls } from "./FeedbackControls";
 import {
   BrandingResponse,
   DemoCustomer,
@@ -24,6 +29,17 @@ import {
   streamChat,
   extractFile,
   ApiError,
+  ChatSources,
+  AnswerFeedback,
+  CitationSource,
+  ConversationSummary,
+  ChatFolder,
+  ConversationChanges,
+  fetchConversation,
+  fetchConversations,
+  fetchChatFolders,
+  createChatFolder,
+  updateConversation,
 } from "./api";
 import { authEnabled, signOut, signIn, currentUserName } from "./auth";
 
@@ -85,6 +101,8 @@ const useStyles = makeStyles({
     gap: "12px",
     backgroundColor: tokens.colorNeutralBackground2,
   },
+  workspace: { display: "flex", flex: "1 1 0", minHeight: 0 },
+  conversation: { display: "flex", flexDirection: "column", flexGrow: 1, minWidth: 0 },
   bubbleUser: {
     alignSelf: "flex-end",
     maxWidth: "70%",
@@ -125,6 +143,33 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
     boxShadow: tokens.shadow2,
     overflowWrap: "anywhere",
+  },
+  citationBadge: {
+    display: "inline-flex",
+    padding: "1px 5px",
+    marginLeft: "2px",
+    border: "none",
+    borderRadius: tokens.borderRadiusCircular,
+    backgroundColor: tokens.colorNeutralBackground3,
+    color: tokens.colorBrandForeground2,
+    fontSize: tokens.fontSizeBase200,
+    fontWeight: tokens.fontWeightSemibold,
+    cursor: "pointer",
+    ":hover": { backgroundColor: tokens.colorNeutralBackground3Hover },
+  },
+  citationSurface: {
+    boxSizing: "border-box",
+    width: "min(340px, calc(100vw - 24px))",
+    maxHeight: "min(360px, 60vh)",
+    overflowY: "auto",
+    overflowWrap: "anywhere",
+  },
+  citationEntry: { paddingBlock: "6px" },
+  citationSummary: { cursor: "pointer", fontWeight: tokens.fontWeightSemibold },
+  citationExcerpt: {
+    margin: "8px 0",
+    whiteSpace: "pre-wrap",
+    color: tokens.colorNeutralForeground2,
   },
   composer: {
     display: "flex",
@@ -206,6 +251,77 @@ const useStyles = makeStyles({
 interface Msg {
   role: "user" | "bot";
   text: string;
+  turnId?: string;
+  feedback?: AnswerFeedback;
+  id?: number;
+  sources?: ChatSources;
+  complete?: boolean;
+  failed?: boolean;
+}
+
+function SourcePreview({ source }: { source: CitationSource }): JSX.Element {
+  const styles = useStyles();
+  const url = source.document_url;
+  return (
+    <>
+      <blockquote className={styles.citationExcerpt}>{source.content}</blockquote>
+      {url && /^https?:\/\//i.test(url) && (
+        <a href={url} target="_blank" rel="noopener noreferrer">Open document</a>
+      )}
+    </>
+  );
+}
+
+function Answer({ message }: { message: Msg }): JSX.Element {
+  const styles = useStyles();
+  const found = citationNumbers(message.text);
+  const cited = (message.sources?.sources || []).filter((s) => found.has(s.number));
+  const byNumber = new Map(cited.map((source) => [source.number, source]));
+  return (
+    <>
+      <Markdown text={message.text} renderCitation={(number) => {
+        const source = byNumber.get(number);
+        if (!source) return null;
+        return (
+          <Popover positioning="above" withArrow>
+            <PopoverTrigger disableButtonEnhancement>
+              <button type="button" className={styles.citationBadge} aria-label={`View source ${number}: ${source.title}`}>
+                {number}
+              </button>
+            </PopoverTrigger>
+            <PopoverSurface className={styles.citationSurface} aria-label={`Source ${number}: ${source.title}`}>
+              <strong>{source.title}</strong>
+              <SourcePreview source={source} />
+            </PopoverSurface>
+          </Popover>
+        );
+      }} />
+      {cited.length > 0 && (
+        <Popover positioning="above-start" withArrow>
+          <PopoverTrigger disableButtonEnhancement>
+            <Button appearance="subtle" size="small" icon={<DocumentText24Regular />}>
+              Sources ({cited.length})
+            </Button>
+          </PopoverTrigger>
+          <PopoverSurface className={styles.citationSurface} aria-label="Sources">
+            <strong>Sources</strong>
+            {cited.map((source) => (
+              <details key={source.number} className={styles.citationEntry}>
+                <summary className={styles.citationSummary}>[{source.number}] {source.title}</summary>
+                <SourcePreview source={source} />
+              </details>
+            ))}
+          </PopoverSurface>
+        </Popover>
+      )}
+      {message.complete && !message.failed && message.sources?.status === "error" &&
+        <div role="status">Source retrieval failed; this answer has no verified sources.</div>}
+      {message.complete && !message.failed && message.sources?.status === "not_found" &&
+        <div role="status">No source excerpts were found for this answer.</div>}
+      {message.complete && !message.failed && message.sources?.status === "available" && cited.length === 0 &&
+        <div role="status">No citations were provided for this answer.</div>}
+    </>
+  );
 }
 
 // A user turn that embeds an uploaded document is wrapped as
@@ -283,9 +399,85 @@ export function App() {
   const [signedOut, setSignedOut] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [userName, setUserName] = useState("");
+  const [switchingCustomer, setSwitchingCustomer] = useState(false);
+  const [showHistory, setShowHistory] = useState(() => window.innerWidth >= 700);
+  const [history, setHistory] = useState<ConversationSummary[]>([]);
+  const [folders, setFolders] = useState<ChatFolder[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyOpening, setHistoryOpening] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [historyVersion, setHistoryVersion] = useState(0);
   const chatRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const nextMessageId = useRef(0);
+  const navigationLocked = busy || uploading || historyOpening || switchingCustomer;
+
+  function newChat() {
+    setMessages([]);
+    setConvId(undefined);
+    setLastUsage(null);
+    setInput("");
+    setErr("");
+  }
+
+  const orgId = customer?.org_id;
+  useEffect(() => {
+    if (!orgId || !instanceId || signedOut) return;
+    const controller = new AbortController();
+    setHistoryLoading(true);
+    setHistoryError("");
+    Promise.all([
+      fetchConversations(instanceId, controller.signal),
+      fetchChatFolders(instanceId, controller.signal),
+    ]).then(
+      ([list, chatFolders]) => {
+        if (controller.signal.aborted) return;
+        setHistory(list);
+        setFolders(chatFolders);
+      },
+      (error: unknown) => {
+        if (controller.signal.aborted) return;
+        setHistory([]);
+        setFolders([]);
+        setHistoryError(error instanceof Error ? error.message : "Could not load chat history.");
+      },
+    ).finally(() => { if (!controller.signal.aborted) setHistoryLoading(false); });
+    return () => controller.abort();
+  }, [orgId, instanceId, signedOut, historyVersion]);
+
+  async function saveFolder(name: string) {
+    await createChatFolder(instanceId, name);
+    setHistoryVersion((version) => version + 1);
+  }
+
+  async function saveConversation(id: string, changes: ConversationChanges) {
+    await updateConversation(instanceId, id, changes);
+    setHistoryVersion((version) => version + 1);
+  }
+
+  async function openConversation(id: string) {
+    if (!instanceId || navigationLocked || id === convId) return;
+    setHistoryOpening(true);
+    setErr("");
+    try {
+      const { turns } = await fetchConversation(instanceId, id);
+      setMessages(turns.flatMap<Msg>((turn) => [
+        { role: "user", text: turn.user_text },
+        { role: "bot", text: turn.answer, id: ++nextMessageId.current, sources: turn.sources, complete: true,
+          turnId: turn.turn_id, feedback: turn.feedback },
+      ]));
+      setConvId(id);
+      setLastUsage(null);
+      setInput("");
+      if (window.innerWidth < 700) setShowHistory(false);
+    } catch (e) {
+      if (e instanceof ApiError && handleLockout(e.status, e.code)) return;
+      setErr(e instanceof Error ? e.message : "Could not open this conversation.");
+    } finally {
+      setHistoryOpening(false);
+    }
+  }
 
   // Auto-grow the composer textarea up to a max height, then scroll.
   function autoResize() {
@@ -318,18 +510,23 @@ export function App() {
 
   // Sign in (dev) + load branding whenever the customer changes.
   async function selectCustomer(c: DemoCustomer) {
-    setErr("");
+    setSwitchingCustomer(true);
     setCustomer(c);
     setUrlOrg(c.org_id);
-    setInstanceId(c.instances[0]?.id || "");
-    setMessages([]);
-    setConvId(undefined);
-    setLastUsage(null);
+    setInstanceId("");
+    setHistory([]);
+    setFolders([]);
+    setBranding(null);
+    setToken("");
+    newChat();
     try {
       await devLogin(c.org_id);
       setBranding(await fetchBranding());
+      setInstanceId(c.instances[0]?.id || "");
     } catch (e: any) {
       setErr(e.message);
+    } finally {
+      setSwitchingCustomer(false);
     }
   }
 
@@ -426,6 +623,9 @@ export function App() {
       return false;
     }
     setMessages([]);
+    setHistory([]);
+    setFolders([]);
+    setInstanceId("");
     setErr(
       code === "account_disabled"
         ? "Your access has been turned off by your administrator. You'll be signed out now."
@@ -468,34 +668,46 @@ export function App() {
 
   async function send(textOverride?: string) {
     const text = (textOverride ?? input).trim();
-    if (!text || busy || !instanceId) return;
+    if (!text || navigationLocked || !instanceId) return;
     setInput("");
     setErr("");
     setBusy(true);
-    setMessages((m) => [...m, { role: "user", text }, { role: "bot", text: "" }]);
+    const messageId = ++nextMessageId.current;
+    setMessages((m) => [...m, { role: "user", text }, { role: "bot", text: "", id: messageId }]);
+    const updateAnswer = (change: Partial<Msg>) =>
+      setMessages((msgs) => msgs.map((msg) => msg.id === messageId ? { ...msg, ...change } : msg));
 
     let acc = "";
-    await streamChat(
-      { message: text, instance_id: instanceId, conversation_id: convId },
-      {
-        onMeta: (m) => m?.conversation_id && setConvId(m.conversation_id),
-        onToken: (t) => {
-          acc += t;
-          setMessages((msgs) => {
-            const copy = [...msgs];
-            copy[copy.length - 1] = { role: "bot", text: acc };
-            return copy;
-          });
-        },
-        onUsage: (u) => setLastUsage(u),
-        onError: (msg, status, code) => {
-          if (handleLockout(status, code)) return;
-          setErr(msg);
-        },
-        onDone: () => setBusy(false),
-      }
-    );
-    setBusy(false);
+    let failed = false;
+    try {
+      await streamChat(
+        { message: text, instance_id: instanceId, conversation_id: convId },
+        {
+          onMeta: (m) => m?.conversation_id && setConvId(m.conversation_id),
+          onSources: (sources) => updateAnswer({ sources }),
+          onToken: (t) => {
+            acc += t;
+            updateAnswer({ text: acc });
+          },
+          onUsage: (u) => setLastUsage(u),
+          onError: (msg, status, code) => {
+            failed = true;
+            updateAnswer({ failed: true });
+            if (handleLockout(status, code)) return;
+            setErr(msg);
+          },
+          onDone: (turnId) => {
+            updateAnswer({ complete: true, turnId });
+            if (!failed) setHistoryVersion((version) => version + 1);
+          },
+        }
+      );
+    } catch (e) {
+      updateAnswer({ failed: true });
+      setErr(e instanceof Error ? e.message : "The response stream failed.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const color = branding?.primary_color || "#138DDE";
@@ -562,6 +774,14 @@ export function App() {
         </div>
       )}
       <header className={styles.header} style={{ background: brandGradient(color) }}>
+        <Button
+          appearance="transparent"
+          className={styles.refreshBtn}
+          icon={<History20Regular />}
+          aria-label="Chat history"
+          aria-expanded={showHistory}
+          onClick={() => setShowHistory((open) => !open)}
+        />
         <img src={branding?.logo_url || "/logo.svg"} className={styles.logo} alt="logo" />
         <div>
           <Text weight="bold" size={500}>
@@ -580,6 +800,7 @@ export function App() {
               <Text size={200}>Demo customer:</Text>
               <Dropdown
                 size="small"
+                disabled={navigationLocked}
                 value={customer?.name || ""}
                 selectedOptions={customer ? [customer.org_id] : []}
                 onOptionSelect={(_, d) => {
@@ -598,7 +819,7 @@ export function App() {
                 className={styles.refreshBtn}
                 title="Refresh customer list"
                 aria-label="Refresh customer list"
-                disabled={refreshing}
+                disabled={refreshing || navigationLocked}
                 icon={
                   <ArrowClockwise20Regular className={refreshing ? styles.spin : undefined} />
                 }
@@ -611,7 +832,16 @@ export function App() {
               size="small"
               value={customer.instances.find((i) => i.id === instanceId)?.display_name || ""}
               selectedOptions={[instanceId]}
-              onOptionSelect={(_, d) => setInstanceId(d.optionValue || "")}
+              disabled={navigationLocked}
+              onOptionSelect={(_, d) => {
+                const next = d.optionValue || "";
+                if (next !== instanceId) {
+                  setInstanceId(next);
+                  setHistory([]);
+                  setFolders([]);
+                  newChat();
+                }
+              }}
             >
               {customer.instances.map((i) => (
                 <Option key={i.id} value={i.id}>
@@ -648,6 +878,18 @@ export function App() {
 
       {err && <MessageBar intent="error">{err}</MessageBar>}
 
+      <div className={styles.workspace}>
+      {showHistory && (
+        <ChatHistory key={`${orgId}:${instanceId}`} chats={history} folders={folders} activeId={convId}
+          loading={historyLoading} error={historyError} disabled={navigationLocked || !instanceId}
+          onNewChat={() => {
+            newChat();
+            if (window.innerWidth < 700) setShowHistory(false);
+          }}
+          onOpen={openConversation} onRetry={() => setHistoryVersion((version) => version + 1)}
+          onCreateFolder={saveFolder} onUpdate={saveConversation} />
+      )}
+      <div className={styles.conversation}>
       <div className={styles.chat} ref={chatRef}>
         {messages.length === 0 && (
           <div className={styles.starter}>
@@ -685,7 +927,11 @@ export function App() {
                 style={{ borderRadius: "50%", flexShrink: 0 }}
               />
               <div className={styles.bubbleBot}>
-                {m.text ? <Markdown text={m.text} /> : busy ? <Spinner size="tiny" /> : ""}
+                {m.text ? <Answer message={m} /> : busy && !m.failed ? <Spinner size="tiny" /> : ""}
+                {m.turnId && convId && !m.failed && (
+                  <FeedbackControls key={m.turnId} instanceId={instanceId} conversationId={convId}
+                    turnId={m.turnId} initialFeedback={m.feedback} />
+                )}
               </div>
             </div>
           )
@@ -715,7 +961,7 @@ export function App() {
             appearance="subtle"
             className={styles.iconBtn}
             icon={uploading ? <Spinner size="tiny" /> : <Attach24Regular />}
-            disabled={busy || uploading || !instanceId}
+            disabled={navigationLocked || !instanceId}
             title="Attach a document (PDF, DOCX, TXT, MD) — e.g. a CV to evaluate"
             aria-label="Attach a document"
             onClick={() => fileRef.current?.click()}
@@ -725,6 +971,7 @@ export function App() {
             className={styles.ta}
             rows={1}
             value={input}
+            disabled={historyOpening || switchingCustomer}
             placeholder="Type your message…"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -738,13 +985,15 @@ export function App() {
             appearance="primary"
             className={styles.sendBtn}
             icon={<Send24Filled />}
-            disabled={busy || !input.trim()}
+            disabled={navigationLocked || !instanceId || !input.trim()}
             onClick={() => send()}
             title="Send"
             aria-label="Send"
             style={{ backgroundColor: color }}
           />
         </div>
+      </div>
+      </div>
       </div>
     </div>
   );

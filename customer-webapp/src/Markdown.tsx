@@ -5,48 +5,85 @@ import React from "react";
 // inline code, and links. Renders to React nodes (no dangerouslySetInnerHTML),
 // so model output can't inject HTML.
 
-function renderInline(text: string, keyPrefix: string): React.ReactNode[] {
+type RenderCitation = (number: number) => React.ReactNode;
+
+const numberList = String.raw`[0-9]+(?:[ \t]*[,;][ \t]*[0-9]+)*`;
+const citationMarker = String.raw`\[\[source[ \t]*:[ \t]*([0-9]+)[ \t]*\]\]|\((?:sources?|font[ei])[ \t]*:[ \t]*(\[${numberList}\]|${numberList})[ \t]*\)`;
+const inlinePattern = new RegExp(
+  /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|/.source + citationMarker +
+  /|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/.source,
+  "gi",
+);
+
+function markerNumbers(value: string): number[] {
+  return [...new Set((value.match(/[0-9]+/g) ?? []).map(Number))];
+}
+
+export function citationNumbers(text: string): Set<number> {
+  const numbers = new Set<number>();
+  for (const [token, code, link, canonical, labeled] of text.matchAll(inlinePattern)) {
+    const marker = canonical ?? labeled;
+    if (marker) for (const number of markerNumbers(marker)) numbers.add(number);
+    else if (!code && !link) {
+      const width = token.startsWith("**") || token.startsWith("__") ? 2 : 1;
+      for (const number of citationNumbers(token.slice(width, -width))) numbers.add(number);
+    }
+  }
+  return numbers;
+}
+
+function renderInline(text: string, keyPrefix: string, renderCitation?: RenderCitation): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
-  // Order matters: code first (so ** inside code isn't parsed), then links,
-  // bold, italic.
-  const pattern =
-    /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/g;
   let last = 0;
-  let m: RegExpExecArray | null;
   let i = 0;
-  while ((m = pattern.exec(text)) !== null) {
-    if (m.index > last) nodes.push(text.slice(last, m.index));
-    const tok = m[0];
+  for (const m of text.matchAll(inlinePattern)) {
+    const index = m.index ?? 0;
+    if (index > last) nodes.push(text.slice(last, index));
+    const [tok, code, link, canonical, labeled] = m;
+    const marker = canonical ?? labeled;
     const key = `${keyPrefix}-${i++}`;
-    if (tok.startsWith("`")) {
+    if (code) {
       nodes.push(
         <code key={key} style={{ background: "rgba(0,0,0,0.06)", padding: "1px 4px", borderRadius: 4 }}>
           {tok.slice(1, -1)}
         </code>
       );
-    } else if (tok.startsWith("[")) {
+    } else if (marker) {
+      const entries = markerNumbers(marker).map((number) => ({ number, control: renderCitation?.(number) }));
+      nodes.push(
+        <React.Fragment key={key}>
+          {entries.some(({ control }) => control != null)
+            ? entries.map(({ number, control }, idx) => (
+                <React.Fragment key={number}>{idx > 0 && " "}{control ?? "[unverified citation]"}</React.Fragment>
+              ))
+            : canonical ? "[unverified citation]" : tok}
+        </React.Fragment>
+      );
+    } else if (link) {
       const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
       if (lm) {
-        nodes.push(
+        const safe = /^(https?:\/\/|mailto:)/i.test(lm[2]);
+        nodes.push(safe ?
           <a key={key} href={lm[2]} target="_blank" rel="noopener noreferrer">
             {lm[1]}
           </a>
+          : <span key={key}>{lm[1]}</span>
         );
       } else {
         nodes.push(tok);
       }
     } else if (tok.startsWith("**") || tok.startsWith("__")) {
-      nodes.push(<strong key={key}>{tok.slice(2, -2)}</strong>);
+      nodes.push(<strong key={key}>{renderInline(tok.slice(2, -2), key, renderCitation)}</strong>);
     } else {
-      nodes.push(<em key={key}>{tok.slice(1, -1)}</em>);
+      nodes.push(<em key={key}>{renderInline(tok.slice(1, -1), key, renderCitation)}</em>);
     }
-    last = m.index + tok.length;
+    last = index + tok.length;
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes;
 }
 
-export function Markdown({ text }: { text: string }): React.ReactElement {
+export function Markdown({ text, renderCitation }: { text: string; renderCitation?: RenderCitation }): React.ReactElement {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const blocks: React.ReactNode[] = [];
   let list: { ordered: boolean; items: string[] } | null = null;
@@ -56,7 +93,7 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
     if (para.length) {
       blocks.push(
         <p key={`p-${key++}`} style={{ margin: "0 0 8px" }}>
-          {renderInline(para.join(" "), `p${key}`)}
+          {renderInline(para.join(" "), `p${key}`, renderCitation)}
         </p>
       );
       para = [];
@@ -69,7 +106,7 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
       blocks.push(
         <Tag key={`l-${key++}`} style={{ margin: "0 0 8px", paddingLeft: 20 }}>
           {cur.items.map((it, idx) => (
-            <li key={idx}>{renderInline(it, `li${key}-${idx}`)}</li>
+            <li key={idx}>{renderInline(it, `li${key}-${idx}`, renderCitation)}</li>
           ))}
         </Tag>
       );
@@ -124,7 +161,7 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
                       background: "rgba(0,0,0,0.04)",
                     }}
                   >
-                    {renderInline(h, `th${tkey}-${ci}`)}
+                    {renderInline(h, `th${tkey}-${ci}`, renderCitation)}
                   </th>
                 ))}
               </tr>
@@ -141,7 +178,7 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
                         verticalAlign: "top",
                       }}
                     >
-                      {renderInline(r[ci] ?? "", `td${tkey}-${ri}-${ci}`)}
+                      {renderInline(r[ci] ?? "", `td${tkey}-${ri}-${ci}`, renderCitation)}
                     </td>
                   ))}
                 </tr>
@@ -161,7 +198,7 @@ export function Markdown({ text }: { text: string }): React.ReactElement {
         React.createElement(
           `h${level}`,
           { key: `h-${key++}`, style: { margin: "4px 0 6px", fontSize: size } },
-          renderInline(heading[2], `h${key}`)
+          renderInline(heading[2], `h${key}`, renderCitation)
         )
       );
     } else if (bullet || numbered) {

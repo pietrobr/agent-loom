@@ -207,7 +207,7 @@ def search(org_id: str, query: str, instance_id: str | None = None, top: int = 5
             return []
         except Exception as exc2:  # pragma: no cover
             log.warning("search failed for %s: %s", org_id, exc2)
-            return []
+            raise
 
 
 def document_count(org_id: str) -> int:

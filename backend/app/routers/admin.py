@@ -12,15 +12,21 @@ from typing import Any, Dict, List
 
 import httpx
 from azure.core.exceptions import AzureError
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 
-from ..models import Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
+from ..models import FeedbackRating, Instance, Template, Tenant, Branding, SYSTEM_ORG, _now
 from ..security import Principal, require_admin
 from ..services import agentic, blob, cosmos, foundry, search, ciam_groups, tracing
 from ..config import get_settings
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 log = logging.getLogger(__name__)
+_CITATION_NUMBERS = r"[0-9]+(?:[ \t]*[,;][ \t]*[0-9]+)*"
+_FEEDBACK_CITATION = re.compile(
+    r"`[^`]+`|\[[^\]]+\]\([^)]+\)|\[\[source[ \t]*:[ \t]*([0-9]+)[ \t]*\]\]"
+    rf"|\((?:sources?|font[ei])[ \t]*:[ \t]*(\[{_CITATION_NUMBERS}\]|{_CITATION_NUMBERS})[ \t]*\)",
+    re.IGNORECASE,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -217,6 +223,11 @@ def delete_customer(org_id: str, _: Principal = Depends(require_admin)) -> Dict[
             "Unable to delete customer Search resources. The customer record has not "
             "been deleted; check the backend logs and retry.",
         ) from exc
+    try:
+        cosmos.delete_chat_history(org_id)
+    except AzureError as exc:
+        log.exception("Failed to delete chat history for customer %s", org_id)
+        raise HTTPException(502, "Unable to delete customer chat history. Retry customer deletion.") from exc
     # Remove the per-customer CIAM security group (groups model), if any.
     tenant = cosmos.get_tenant(org_id)
     if tenant and tenant.get("group_id"):
@@ -351,6 +362,53 @@ def remove_customer_group_member(
 @router.get("/customers/{org_id}/instances")
 def list_customer_instances(org_id: str, _: Principal = Depends(require_admin)) -> List[Dict[str, Any]]:
     return cosmos.list_instances(org_id)
+
+
+@router.get("/customers/{org_id}/feedback")
+def list_customer_feedback(org_id: str, response: Response, instance_id: str | None = None,
+                           rating: FeedbackRating | None = None,
+                           _: Principal = Depends(require_admin)) -> list[dict]:
+    filters = ["STARTSWITH(c.id, 'turn::')", "IS_DEFINED(c.feedback.submitted_at)"]
+    params = []
+    if instance_id:
+        filters.append("c.instance_id = @instance")
+        params.append({"name": "@instance", "value": instance_id})
+    if rating:
+        filters.append("c.feedback.rating = @rating")
+        params.append({"name": "@rating", "value": rating})
+    response.headers["Cache-Control"] = "no-store"
+    return cosmos.query(
+        "threads", org_id,
+        "SELECT TOP 50 c.id AS turn_id, c.instance_id, c.feedback FROM c WHERE "
+        + " AND ".join(filters) + " ORDER BY c.feedback.submitted_at DESC",
+        params,
+    )
+
+
+@router.get("/customers/{org_id}/feedback/{turn_id}")
+def get_customer_feedback(org_id: str, turn_id: str, response: Response,
+                          _: Principal = Depends(require_admin)) -> dict:
+    turn = cosmos.read("threads", org_id, turn_id) if turn_id.startswith("turn::") else None
+    if not turn or not turn.get("feedback"):
+        raise HTTPException(404, "feedback not found")
+    answer = turn["answer"]
+
+    def citation_numbers(match: re.Match[str]) -> list[str]:
+        return list(dict.fromkeys(n.lstrip("0") for n in re.findall(r"[0-9]+", match[1] or match[2] or "")))
+
+    cited = {n for match in _FEEDBACK_CITATION.finditer(answer) for n in citation_numbers(match)}
+    sources = [source for source in turn["sources"]["sources"] if str(source["number"]) in cited]
+    verified = {str(source["number"]) for source in sources}
+
+    def format_citation(match: re.Match[str]) -> str:
+        numbers = citation_numbers(match)
+        if any(n in verified for n in numbers):
+            return " ".join(f"[{n}]" if n in verified else "[unverified citation]" for n in numbers)
+        return "[unverified citation]" if match[1] else match[0]
+
+    answer = _FEEDBACK_CITATION.sub(format_citation, answer)
+    response.headers["Cache-Control"] = "no-store"
+    return {"answer": answer, "sources": sources, "feedback": turn["feedback"]}
 
 
 @router.get("/customers/{org_id}/instances/document-counts")

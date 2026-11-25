@@ -23,6 +23,7 @@ class CustomerDeletionTests(unittest.TestCase):
             "instances": (admin.cosmos, "list_instances"),
             "agentic": (admin.agentic, "delete_resources"),
             "index": (admin.search, "delete_index"),
+            "history": (admin.cosmos, "delete_chat_history"),
             "group": (admin.ciam_groups, "delete_group"),
             "lifecycle": (admin.cosmos, "record_lifecycle"),
             "delete": (admin.cosmos, "delete"),
@@ -50,6 +51,8 @@ class CustomerDeletionTests(unittest.TestCase):
         names = [call[0] for call in self.calls.mock_calls]
         self.assertLess(names.index("agentic"), names.index("index"))
         self.assertLess(names.index("index"), names.index("group"))
+        self.calls.history.assert_called_once_with("test")
+        self.assertLess(names.index("history"), names.index("delete"))
         self.assertLess(names.index("group"), names.index("lifecycle"))
         self.assertLess(names.index("lifecycle"), names.index("delete"))
 
@@ -58,6 +61,7 @@ class CustomerDeletionTests(unittest.TestCase):
         self.assertEqual(self.delete().status_code, 409)
         self.calls.agentic.assert_not_called()
         self.calls.index.assert_not_called()
+        self.calls.history.assert_not_called()
         self.calls.delete.assert_not_called()
 
     def test_unknown_customer_blocks_all_cleanup(self):
